@@ -242,6 +242,73 @@ function stopObserver() {
 }
 
 // -------------------------------------------------------------------
+// 4. 自动更新检查功能
+// -------------------------------------------------------------------
+
+const REPO_API_URL = 'https://api.github.com/repos/GlacierCifer/ST-Model-Display/commits/main';
+const SCRIPT_RAW_URL = 'https://raw.githubusercontent.com/GlacierCifer/ST-Model-Display/main/ST-Model-Display.user.js';
+const VERSION_STORAGE_KEY = 'model_display_version_sha';
+
+/**
+ * 在设置面板显示更新通知
+ */
+function displayUpdateNotification() {
+    const settingsHeader = $('#model_display_settings .inline-drawer-header');
+    if (settingsHeader.length && $('#model_display_update_notice').length === 0) {
+        const updateLink = $('<a></a>', {
+            id: 'model_display_update_notice',
+            href: SCRIPT_RAW_URL,
+            text: '🚀 有可用更新',
+            target: '_blank',
+            title: '点击安装新版本',
+        }).css({
+            'color': 'var(--primary_color_accent)',
+            'margin-left': '10px',
+            'text-decoration': 'none',
+        });
+        settingsHeader.append(updateLink);
+    }
+}
+
+/**
+ * 检查脚本是否有新版本
+ */
+async function checkForUpdates() {
+    try {
+        const response = await fetch(REPO_API_URL);
+        if (!response.ok) {
+            console.warn('[模型名称脚本] 检查更新失败，无法连接到 GitHub API。');
+            return;
+        }
+
+        const data = await response.json();
+        const latestSha = data.sha || (Array.isArray(data) ? data[0].sha : null);
+
+        if (!latestSha) {
+             console.warn('[模型名称脚本] 检查更新失败，无法解析 API 响应。');
+            return;
+        }
+
+        const currentSha = localStorage.getItem(VERSION_STORAGE_KEY);
+
+        if (!currentSha) {
+            // 如果是首次运行，直接存储最新版本号，不提示更新
+            localStorage.setItem(VERSION_STORAGE_KEY, latestSha);
+            console.log('[模型名称脚本] 已初始化版本号:', latestSha);
+        } else if (currentSha !== latestSha) {
+            // 如果本地版本号与远程不一致，则提示更新
+            console.log(`[模型名称脚本] 检测到新版本！当前: ${currentSha.substring(0,7)}, 最新: ${latestSha.substring(0,7)}`);
+            displayUpdateNotification();
+        } else {
+            // 版本一致
+            console.log('[模型名称脚本] 当前已是最新版本。');
+        }
+    } catch (error) {
+        console.error('[模型名称脚本] 检查更新时发生错误:', error);
+    }
+}
+
+// -------------------------------------------------------------------
 // 3. 插件入口点 (与之前版本相同)
 // -------------------------------------------------------------------
 
@@ -254,6 +321,10 @@ function initializeExtension() {
         if (getSettings().enabled) {
             startObserver();
         }
+
+        // 新增调用：在插件初始化时检查更新
+        checkForUpdates();
+
         console.log('[动态显示模型名称] 插件完全初始化成功。');
 
     } catch (e) {
