@@ -1,7 +1,0 @@
-{
-    "name": "model-display-test",
-    "display_name": "动态显示模型名称 (测试)",
-    "version": "0.0.1",
-    "author": "你",
-    "js": "script.js"
-}
