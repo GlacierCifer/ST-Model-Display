@@ -1,0 +1,9 @@
+{
+  "display_name": "动态显示模型名称",
+  "name": "model-display",
+  "version": "1.0.0",
+  "author": "竺笋（三天两顿）",
+  "js": "script.js",
+  "css": "style.css",
+  "loading_order": 999
+}
