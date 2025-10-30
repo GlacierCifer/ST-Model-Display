@@ -222,10 +222,34 @@ Object.defineProperty(window, 'addOneMessage', {
     configurable: true,
 });
 
-// 插件入口点
-$(document).ready(function() {
-    $('#extensions_settings').append(renderSettingsHtml());
+// 【插件入口点】 - 使用轮询等待UI加载 (最终版)
+
+function initializeExtension() {
+    // 1. 将设置面板插入到SillyTavern的扩展设置区域
+    try {
+        $('#extensions_settings').append(renderSettingsHtml());
+    } catch (e) {
+        console.error('[动态显示模型名称] 注入UI时出错:', e);
+        return; // 出错则停止
+    }
+
+    // 2. 为面板上的所有控件绑定事件
     bindSettingsEvents();
+
+    // 3. 初始化时应用一次保存的字体
     applyFontCss(getSettings().fontCssUrl);
+
     console.log('[动态显示模型名称] 扩展加载成功，UI已注入，addOneMessage已劫持。');
-});
+}
+
+// 使用一个定时器来轮询，直到找到目标元素 #extensions_settings
+const settingsCheckInterval = setInterval(() => {
+    // 检查SillyTavern的扩展设置容器是否已经存在于页面上
+    if ($('#extensions_settings').length) {
+        // 如果找到了，就停止轮询，避免不必要的性能消耗
+        clearInterval(settingsCheckInterval);
+        // 执行我们的初始化函数
+        initializeExtension();
+    }
+}, 500); // 每 500 毫秒检查一次
+
