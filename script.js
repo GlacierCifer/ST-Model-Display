@@ -1,10 +1,12 @@
-import { addOneMessage, saveSettingsDebounced } from '../../../../script.js';
+import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
-// 模块名称，用于在SillyTavern的全局设置中存储数据
 const MODULE_NAME = 'model_display';
 
-// 定义所有可配置项的默认值
+// -------------------------------------------------------------------
+// 1. 所有辅助函数定义 (与之前版本相同)
+// -------------------------------------------------------------------
+
 const defaultSettings = Object.freeze({
     enabled: true,
     fontSize: '0.85em',
@@ -16,7 +18,6 @@ const defaultSettings = Object.freeze({
     ],
 });
 
-// 获取设置的辅助函数
 function getSettings() {
     if (!extension_settings[MODULE_NAME]) {
         extension_settings[MODULE_NAME] = { ...defaultSettings };
@@ -29,13 +30,11 @@ function getSettings() {
     return extension_settings[MODULE_NAME];
 }
 
-// 保存设置的辅助函数
 function saveSettings() {
-    saveSettingsDebounced();
+    script.saveSettingsDebounced();
     rerenderAllModelNames();
 }
 
-// 生成设置面板的HTML代码
 function renderSettingsHtml() {
     const settings = getSettings();
     return `
@@ -83,17 +82,21 @@ function renderSettingsHtml() {
     `;
 }
 
-// 为UI控件绑定事件
 function bindSettingsEvents() {
     const settings = getSettings();
-
     $(document).off('change.model_display').off('input.model_display').off('click.model_display');
 
     $(document).on('change.model_display', '#model_display_enabled', function() {
         settings.enabled = $(this).is(':checked');
         $('#model_display_options').toggle(settings.enabled);
-        saveSettings();
-        if (!settings.enabled) rerenderAllModelNames(true);
+        rerenderAllModelNames(!settings.enabled);
+        script.saveSettingsDebounced();
+
+        if (settings.enabled) {
+            startObserver();
+        } else {
+            stopObserver();
+        }
     });
 
     $(document).on('input.model_display', '#model_display_font_size', function() { settings.fontSize = $(this).val(); saveSettings(); });
@@ -122,7 +125,6 @@ function bindSettingsEvents() {
     });
 }
 
-// 动态应用/切换字体
 function applyFontCss(url) {
     $('#model_display_dynamic_font').remove();
     const style = document.createElement('style');
@@ -131,20 +133,20 @@ function applyFontCss(url) {
     document.head.appendChild(style);
 }
 
-// 强制刷新所有已显示的名称
 function rerenderAllModelNames(revert = false) {
-    if (revert) {
-        // 最简单可靠的恢复方法是刷新页面
-        location.reload();
-        return;
-    }
     document.querySelectorAll('#chat .mes .timestamp-icon[data-model-injected="true"]').forEach(icon => {
-        icon.dataset.modelInjected = 'false';
-        processLatestMessage(icon.closest('.mes'));
+        if (revert) {
+            icon.innerHTML = '';
+            icon.style.width = '';
+            icon.style.height = '';
+            icon.removeAttribute('data-model-injected');
+        } else {
+            icon.dataset.modelInjected = 'false';
+            processLatestMessage(icon.closest('.mes'));
+        }
     });
 }
 
-// 核心功能：DOM查询与SVG处理
 function deepQuerySelector(selector, root = document) {
     try {
         const found = root.querySelector(selector); if (found) return found;
@@ -166,10 +168,8 @@ function getCurrentModelName(messageElement) {
 
 function processIcon(iconSvg, modelName) {
     if (iconSvg.dataset.modelInjected === 'true') return;
-
     const settings = getSettings();
     const fullText = `${settings.prefix}${modelName}${settings.suffix}`;
-
     const originalHeight = iconSvg.getBoundingClientRect().height || 22;
     iconSvg.innerHTML = '';
     iconSvg.removeAttribute('viewBox');
@@ -187,69 +187,83 @@ function processIcon(iconSvg, modelName) {
             iconSvg.style.height = originalHeight + 'px';
             iconSvg.setAttribute('viewBox', `0 0 ${textWidth} ${originalHeight}`);
             iconSvg.dataset.modelInjected = 'true';
-        } catch (e) {
-            console.error("[模型名称脚本] 测量或设定尺寸时出错:", e);
-        }
+        } catch (e) { console.error("[模型名称脚本] 渲染SVG时出错:", e); }
     });
 }
 
-function processLatestMessage(messageElement) {
-    if (!messageElement) return;
-    const iconSvg = deepQuerySelector('.icon-svg.timestamp-icon', messageElement);
+// -------------------------------------------------------------------
+// 2. 核心逻辑: 完全复刻自你的可用代码
+// -------------------------------------------------------------------
+
+let chatObserver = null;
+let debounceTimer; // 用于延时处理
+
+// 【修正】这个函数不再接收参数，而是自己去寻找最后一条消息
+function processLatestMessage() {
+    const lastMessage = document.querySelector('#chat .mes:last-of-type');
+    if (!lastMessage || lastMessage.getAttribute('is_user') === 'true') {
+        return;
+    }
+    const iconSvg = deepQuerySelector('.icon-svg.timestamp-icon', lastMessage);
     if (iconSvg) {
-        const modelName = getCurrentModelName(messageElement);
-        if (modelName) processIcon(iconSvg, modelName);
+        const modelName = getCurrentModelName(lastMessage);
+        if (modelName) {
+            processIcon(iconSvg, modelName);
+        }
     }
 }
 
-// 函数劫持部分 (最终优化版)
-const originalAddOneMessage = addOneMessage;
-const newAddOneMessage = function(name, mes, is_user, ...other_args) {
-    const result = originalAddOneMessage.apply(this, arguments);
-    if (is_user || !getSettings().enabled) {
-        return result;
+function startObserver() {
+    if (chatObserver) return;
+    const chatNode = document.getElementById('chat');
+    if (!chatNode) {
+        setTimeout(startObserver, 500);
+        return;
     }
-    try {
-        processLatestMessage(document.querySelector('#chat .mes:last-of-type'));
-    } catch (error) {
-        console.error('[动态显示模型名称] 处理新消息时出错:', error);
-    }
-    return result;
-};
-Object.defineProperty(window, 'addOneMessage', {
-    value: newAddOneMessage,
-    writable: true,
-    configurable: true,
-});
 
-// 【插件入口点】 - 使用轮询等待UI加载 (最终版)
+    // 【修正】回调函数完全复刻你的可用代码逻辑
+    const observerCallback = () => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(processLatestMessage, 250);
+    };
+
+    chatObserver = new MutationObserver(observerCallback);
+    // 使用 subtree:true 来确保能监听到所有深层变化
+    chatObserver.observe(chatNode, { childList: true, subtree: true });
+    console.log('[动态显示模型名称] 最终版 MutationObserver 已启动。');
+}
+
+function stopObserver() {
+    if (chatObserver) {
+        chatObserver.disconnect();
+        chatObserver = null;
+        console.log('[动态显示模型名称] MutationObserver 已停止。');
+    }
+}
+
+// -------------------------------------------------------------------
+// 3. 插件入口点 (与之前版本相同)
+// -------------------------------------------------------------------
 
 function initializeExtension() {
-    // 1. 将设置面板插入到SillyTavern的扩展设置区域
     try {
         $('#extensions_settings').append(renderSettingsHtml());
+        bindSettingsEvents();
+        applyFontCss(getSettings().fontCssUrl);
+
+        if (getSettings().enabled) {
+            startObserver();
+        }
+        console.log('[动态显示模型名称] 插件完全初始化成功。');
+
     } catch (e) {
-        console.error('[动态显示模型名称] 注入UI时出错:', e);
-        return; // 出错则停止
+        console.error('[动态显示模型名称] 初始化过程中发生致命错误:', e);
     }
-
-    // 2. 为面板上的所有控件绑定事件
-    bindSettingsEvents();
-
-    // 3. 初始化时应用一次保存的字体
-    applyFontCss(getSettings().fontCssUrl);
-
-    console.log('[动态显示模型名称] 扩展加载成功，UI已注入，addOneMessage已劫持。');
 }
 
-// 使用一个定时器来轮询，直到找到目标元素 #extensions_settings
 const settingsCheckInterval = setInterval(() => {
-    // 检查SillyTavern的扩展设置容器是否已经存在于页面上
     if ($('#extensions_settings').length) {
-        // 如果找到了，就停止轮询，避免不必要的性能消耗
         clearInterval(settingsCheckInterval);
-        // 执行我们的初始化函数
         initializeExtension();
     }
-}, 500); // 每 500 毫秒检查一次
-
+}, 500);
