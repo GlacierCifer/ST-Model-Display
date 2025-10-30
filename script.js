@@ -1,5 +1,5 @@
-import { addOneMessage, saveSettingsDebounced } from '../../../../public/script.js';
-import { extension_settings } from '../../../../public/extensions.js';
+import { addOneMessage, saveSettingsDebounced } from '../../../../script.js';
+import { extension_settings } from '../../../extensions.js';
 
 // 模块名称，用于在SillyTavern的全局设置中存储数据
 const MODULE_NAME = 'model_display';
