@@ -18,7 +18,7 @@ const ModelDisplayModule = {
     // 1.0 模块内部状态和常量
     // ---------------------------------------------------------------
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.0.1',
+    CURRENT_SCRIPT_VERSION: '1.0.2',
     SCRIPT_RAW_URL: 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/script.js',
     modelHistory: {},
     chatContentObserver: null,
