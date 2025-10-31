@@ -297,6 +297,8 @@ const ModelDisplayModule = {
         if (!indicator.length) return;
 
         indicator.text(`v${this.CURRENT_SCRIPT_VERSION}`);
+        // 移除旧的点击事件，确保其不可点击
+        indicator.off('click.update').css('cursor', 'default');
 
         try {
             const response = await fetch(this.SCRIPT_RAW_URL + `?t=${new Date().getTime()}`);
@@ -308,16 +310,13 @@ const ModelDisplayModule = {
             const latestVersion = remoteScriptContent.match(/@version\s+([\d.]+)/)?.[1];
 
             if (latestVersion && this.CURRENT_SCRIPT_VERSION !== latestVersion) {
+                // 发现新版本：添加(new!)标签，并修改提示信息
                 indicator.text(`v${this.CURRENT_SCRIPT_VERSION} (new!)`);
                 indicator.addClass('update-available');
-                indicator.attr('title', `点击更新到 v${latestVersion}`);
-
-                indicator.off('click.update').on('click.update', () => {
-                    alert('档案库的法则限制了直接的文件覆写。\n\n作为替代，将为您打开新版本的源文件地址。请在新打开的页面中手动执行安装/更新操作，然后刷新本页面。');
-                    window.open(this.SCRIPT_RAW_URL, '_blank');
-                });
+                indicator.attr('title', `发现新版本 v${latestVersion}。请通过官方扩展管理器进行更新。`);
             } else {
-                 indicator.attr('title', '当前已是最新版本');
+                // 未发现新版本或版本号相同
+                indicator.attr('title', '当前已是最新版本');
             }
         } catch (error) {
             console.error('[模块-模型显示] 检查更新失败:', error);
