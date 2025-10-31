@@ -100,7 +100,7 @@ function renderSettingsHtml() {
                         <label for="model_display_font_css_url_new">字体 CSS 链接</label>
                         <div style="display: flex; gap: 5px;">
                            <input type="text" id="model_display_font_css_url_new" class="text_pole" placeholder="粘贴新的字体CSS链接...">
-                           <button id="model_display_apply_font" class="primary-button">应用</button>
+                           <button id="model_display_apply_font" class="menu_button interactable">应用</button>
                         </div>
                     </div>
                      <div class="form-group">
