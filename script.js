@@ -73,7 +73,7 @@ function renderSettingsHtml() {
     return `
         <div id="model_display_settings" class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>动态显示模型名称</b>
+                <b>显示模型名称</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content">
@@ -361,7 +361,7 @@ function stopObservers() {
 }
 
 // -------------------------------------------------------------------
-// 4. 自动更新检查功能 (可靠版)
+// 4. 自动更新检查功能
 // -------------------------------------------------------------------
 
 const SCRIPT_RAW_URL = 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/script.js';
