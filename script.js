@@ -1,10 +1,11 @@
 import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
-import { extension_settings } from '../../../extensions.js';
 
 // ==UserScript==
 // @version      1.0
 // ==/UserScript==
+
+const CURRENT_SCRIPT_VERSION = '1.0'; 
 
 // -------------------------------------------------------------------
 // 0. 全局常量与状态
@@ -385,8 +386,8 @@ function displayUpdateNotification() {
 
 async function checkForUpdates() {
     try {
-        // 1. 获取当前脚本的版本号 (从脚本自身的 @version 标签)
-        const currentVersion = document.documentElement.outerHTML.match(/@version\s+([\d.]+)/)?.[1];
+        // 1. 获取当前脚本的版本号 (从常量中直接读取，更可靠)
+        const currentVersion = CURRENT_SCRIPT_VERSION; 
         if (!currentVersion) {
             console.warn('[模型名称脚本] 无法在当前脚本中找到 @version 标签。');
             return;
