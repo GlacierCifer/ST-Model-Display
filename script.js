@@ -78,7 +78,7 @@ function renderSettingsHtml() {
                 <hr>
                 <div id="model_display_options" ${!settings.enabled ? 'style="display: none;"' : ''}>
                     <div class="form-group">
-                        <label for="model_display_font_size">字体大小 (例如: 0.85em, 12px)</label>
+                        <label for="model_display_font_size">字体大小 (例如: 0.85em)</label>
                         <input type="text" id="model_display_font_size" class="text_pole" value="${settings.fontSize}">
                     </div>
                     <div class="form-group">
@@ -241,7 +241,7 @@ function processIcon(iconSvg, modelName) {
 }
 
 // -------------------------------------------------------------------
-// 3. 历史记录与双重观察者逻辑 (最终简化版)
+// 3. 历史记录与双重观察者逻辑
 // -------------------------------------------------------------------
 
 /**
@@ -252,8 +252,7 @@ function processIcon(iconSvg, modelName) {
 function processAndRecordMessage(messageElement) {
     if (!messageElement || messageElement.getAttribute('is_user') === 'true') return;
 
-    // 关键改动：增加一个短暂的延时，模仿原始版本的成功策略。
-    // 这给了应用程序足够的时间来将模型名称写入DOM。
+    // 给应用程序足够的时间来将模型名称写入DOM。
     setTimeout(() => {
         const iconSvg = deepQuerySelector('.icon-svg.timestamp-icon', messageElement);
         const idElement = messageElement.querySelector('.mesIDDisplay');
@@ -274,7 +273,7 @@ function processAndRecordMessage(messageElement) {
 }
 
 /**
- * 扫描所有消息，并根据历史记录恢复模型标签显示 (此函数无需修改)。
+ * 扫描所有消息，并根据历史记录恢复模型标签显示
  */
 function restoreAllFromHistory() {
     if (!getSettings().enabled) return;
@@ -297,7 +296,7 @@ function restoreAllFromHistory() {
 }
 
 /**
- * 启动所有监听器 (此函数逻辑保持不变)。
+ * 启动所有监听器
  */
 function startObservers() {
     stopObservers();
@@ -341,7 +340,7 @@ function startObservers() {
 }
 
 /**
- * 停止所有监听器 (此函数无需修改)。
+ * 停止所有监听器
  */
 function stopObservers() {
     if (chatContentObserver) {
@@ -431,7 +430,7 @@ function initializeExtension() {
 
         checkForUpdates();
 
-        console.log('[动态显示模型名称] 插件（整合版）完全初始化成功。');
+        console.log('[动态显示模型名称] 完全初始化成功。');
 
     } catch (e) {
         console.error('[动态显示模型名称] 初始化过程中发生致命错误:', e);

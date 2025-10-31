@@ -1,9 +1,9 @@
 {
   "display_name": "小杂物集",
-  "name": "model-display",
   "version": "1.0.0",
   "homePage": "https://github.com/GlacierCifer/ST-Model-Display",
-  "author": "竺笋",
+  "author": "竺笋(三天两顿)",
   "js": "script.js",
+  "auto_update": true,
   "loading_order": 999
 }
