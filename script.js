@@ -80,7 +80,6 @@ const ModelDisplayModule = {
             return `<option value="${url}" ${selected}>${text}</option>`;
         }).join('');
 
-        // 移除了外部抽屉，只返回核心设置内容
         return `
             <div id="model_display_options_wrapper">
                 <hr>
@@ -192,6 +191,9 @@ const ModelDisplayModule = {
         });
     },
 
+    // #######################
+    // ###  核心修改在此处  ###
+    // #######################
     waitForElementAndProcess(messageElement, timeout = 5000) {
         if (!messageElement || messageElement.getAttribute('is_user') === 'true') return;
         const startTime = Date.now();
@@ -199,16 +201,28 @@ const ModelDisplayModule = {
             if (Date.now() - startTime > timeout) {
                 clearInterval(intervalId);
                 const finalIdElement = messageElement.querySelector('.mesIDDisplay');
-                const messageId = finalIdElement ? finalIdElement.textContent.replace('#', '') : '未知';
-                console.warn(`[模块-模型显示] 等待楼层 #${messageId} 的元素或模型名称超时。`);
+                // 只有在非 0 和 1 的楼层超时才发出警告
+                if (finalIdElement) {
+                    const messageId = finalIdElement.textContent.replace('#', '');
+                    if (messageId !== '0' && messageId !== '1') {
+                         console.warn(`[模块-模型显示] 等待楼层 #${messageId} 的元素或模型名称超时。`);
+                    }
+                }
                 return;
             }
             const iconSvg = this.deepQuerySelector('.icon-svg.timestamp-icon', messageElement);
             const idElement = messageElement.querySelector('.mesIDDisplay');
             if (!iconSvg || !idElement) { return; }
 
-            const modelName = this.getCurrentModelName(messageElement);
             const messageId = idElement.textContent.replace('#', '');
+
+            // 【新增】如果楼层ID为0或1，则立即停止处理，避免不必要的等待和超时警告
+            if (messageId === '0' || messageId === '1') {
+                clearInterval(intervalId);
+                return;
+            }
+
+            const modelName = this.getCurrentModelName(messageElement);
             if (modelName && messageId) {
                 clearInterval(intervalId);
                 this.modelHistory[messageId] = modelName;
@@ -232,6 +246,7 @@ const ModelDisplayModule = {
                     if (this.modelHistory[messageId]) {
                         this.processIcon(iconSvg, this.modelHistory[messageId]);
                     } else {
+                        // 此处调用已修改的函数，它会自动处理0和1楼层
                         this.waitForElementAndProcess(message);
                     }
                 }
@@ -309,7 +324,7 @@ const ModelDisplayModule = {
             indicator.attr('title', `检查更新时出错: ${error.message}`);
         }
     },
-}; // <--- 此处是修正的关键：添加了缺失的分号
+};
 
 // ###################################################################
 //
@@ -489,7 +504,7 @@ const PlaceholderModule = {
 
 function initializeCombinedExtension() {
     try {
-        // 1. 定义最终的UI布局
+        // 1. UI布局
         const combinedSettingsHtml = `
             <div id="misc_beautify_settings" class="inline-drawer">
                 <div class="inline-drawer-toggle inline-drawer-header">
@@ -497,25 +512,20 @@ function initializeCombinedExtension() {
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content" style="display: none;">
-                    <!-- 开关区域: 布局已根据您的要求精确重构 -->
                     <div class="version-row">
                         <span class="version-indicator" id="model_display_version_indicator"></span>
                     </div>
-                    <div class="misc-beautify-switch-row">
-                        <label class="switch">
-                            <input type="checkbox" id="misc_model_display_toggle" ${ModelDisplayModule.getSettings().enabled ? 'checked' : ''}>
-                            <span class="slider round"></span>
-                        </label>
-                        <label for="misc_model_display_toggle" class="misc-beautify-label">模型名称显示</label>
-                    </div>
 
-                    <div class="misc-beautify-switch-row">
-                         <label class="switch">
-                            <input type="checkbox" id="misc_placeholder_toggle" ${PlaceholderModule.getSettings().enabled ? 'checked' : ''}>
-                            <span class="slider round"></span>
-                        </label>
-                        <label for="misc_placeholder_toggle" class="misc-beautify-label">输入框文字替换</label>
-                    </div>
+                    <!-- 开关区域: 使用SillyTavern标准的原生复选框结构 -->
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="misc_model_display_toggle" ${ModelDisplayModule.getSettings().enabled ? 'checked' : ''}>
+                        <span>模型名称显示</span>
+                    </label>
+
+                    <label class="checkbox_label">
+                        <input type="checkbox" id="misc_placeholder_toggle" ${PlaceholderModule.getSettings().enabled ? 'checked' : ''}>
+                        <span>输入框文字替换</span>
+                    </label>
 
                     <!-- 模块设置区域 -->
                     <div id="model_display_settings_panel" style="${ModelDisplayModule.getSettings().enabled ? '' : 'display: none;'}">
@@ -528,18 +538,11 @@ function initializeCombinedExtension() {
             </div>
 
             <style>
+
                 .version-row {
                     display: flex;
-                    justify-content: flex-end; /* 右对齐版本号 */
+                    justify-content: flex-end;
                     padding: 0 5px 5px;
-                }
-                .misc-beautify-switch-row {
-                    display: flex;
-                    align-items: center;
-                    padding: 8px 0; /* 增加垂直间距 */
-                }
-                .misc-beautify-label {
-                    margin-left: 10px; /* 开关与文字之间的间距 */
                 }
                 .version-indicator {
                     color: var(--text_color_acc);
