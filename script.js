@@ -2,10 +2,10 @@ import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
 // ==UserScript==
-// @version      1.0
+// @version      1.0.1
 // ==/UserScript==
 
-const CURRENT_SCRIPT_VERSION = '1.0'; 
+const CURRENT_SCRIPT_VERSION = '1.0.1'; 
 
 // -------------------------------------------------------------------
 // 0. 全局常量与状态
