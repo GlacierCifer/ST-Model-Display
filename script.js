@@ -364,7 +364,7 @@ function stopObservers() {
 // 4. 自动更新检查功能 (可靠版)
 // -------------------------------------------------------------------
 
-const SCRIPT_RAW_URL = 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/index.js';
+const SCRIPT_RAW_URL = 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/script.js';
 
 function displayUpdateNotification() {
     const settingsHeader = $('#model_display_settings .inline-drawer-header');
