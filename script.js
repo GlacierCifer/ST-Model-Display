@@ -3,7 +3,7 @@ import { extension_settings } from '../../../extensions.js';
 
 // ===================================================================
 //
-//  小杂物集 (Misc Utilities) v1.0.1
+//  小杂物集 (Misc Utilities) v1.0.2
 //  - 模块1: 模型名称显示 (Model Display)
 //  - 模块2: 世界书输入框提示 (World Book Placeholder)
 //
