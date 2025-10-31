@@ -1,5 +1,10 @@
 import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
+import { extension_settings } from '../../../extensions.js';
+
+// ==UserScript==
+// @version      1.0
+// ==/UserScript==
 
 // -------------------------------------------------------------------
 // 0. 全局常量与状态
@@ -355,12 +360,10 @@ function stopObservers() {
 }
 
 // -------------------------------------------------------------------
-// 4. 自动更新检查功能
+// 4. 自动更新检查功能 (可靠版)
 // -------------------------------------------------------------------
 
-const REPO_API_URL = 'https://api.github.com/repos/GlacierCifer/ST-Model-Display/commits/main';
 const SCRIPT_RAW_URL = 'https://raw.githubusercontent.com/GlacierCifer/ST-Model-Display/main/ST-Model-Display.user.js';
-const VERSION_STORAGE_KEY = 'model_display_version_sha';
 
 function displayUpdateNotification() {
     const settingsHeader = $('#model_display_settings .inline-drawer-header');
@@ -382,30 +385,34 @@ function displayUpdateNotification() {
 
 async function checkForUpdates() {
     try {
-        const response = await fetch(REPO_API_URL);
+        // 1. 获取当前脚本的版本号 (从脚本自身的 @version 标签)
+        const currentVersion = document.documentElement.outerHTML.match(/@version\s+([\d.]+)/)?.[1];
+        if (!currentVersion) {
+            console.warn('[模型名称脚本] 无法在当前脚本中找到 @version 标签。');
+            return;
+        }
+
+        // 2. 获取远程脚本的内容
+        const response = await fetch(SCRIPT_RAW_URL);
         if (!response.ok) {
-            console.warn('[模型名称脚本] 检查更新失败，无法连接到 GitHub API。');
+            console.warn('[模型名称脚本] 检查更新失败，无法获取远程脚本文件。');
+            return;
+        }
+        const remoteScriptContent = await response.text();
+
+        // 3. 从远程脚本内容中提取版本号
+        const latestVersion = remoteScriptContent.match(/@version\s+([\d.]+)/)?.[1];
+        if (!latestVersion) {
+            console.warn('[模型名称脚本] 无法在远程脚本中找到 @version 标签。');
             return;
         }
 
-        const data = await response.json();
-        const latestSha = data.sha;
-
-        if (!latestSha) {
-             console.warn('[模型名称脚本] 检查更新失败，无法解析 API 响应。');
-            return;
-        }
-
-        const currentSha = localStorage.getItem(VERSION_STORAGE_KEY);
-
-        if (!currentSha) {
-            localStorage.setItem(VERSION_STORAGE_KEY, latestSha);
-            console.log('[模型名称脚本] 已初始化版本号:', latestSha.substring(0,7));
-        } else if (currentSha !== latestSha) {
-            console.log(`[模型名称脚本] 检测到新版本！当前: ${currentSha.substring(0,7)}, 最新: ${latestSha.substring(0,7)}`);
+        // 4. 比较版本号
+        if (currentVersion !== latestVersion) {
+            console.log(`[模型名称脚本] 检测到新版本！当前: ${currentVersion}, 最新: ${latestVersion}`);
             displayUpdateNotification();
         } else {
-            console.log('[模型名称脚本] 当前已是最新版本。');
+            console.log(`[模型名称脚本] 当前已是最新版本 (${currentVersion})。`);
         }
     } catch (error) {
         console.error('[模型名称脚本] 检查更新时发生错误:', error);
