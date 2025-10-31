@@ -1,10 +1,19 @@
 import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
+// -------------------------------------------------------------------
+// 0. 全局常量与状态
+// -------------------------------------------------------------------
+
 const MODULE_NAME = 'model_display';
+let modelHistory = {}; // 用于存储 { messageId: modelName } 的历史记录
+
+let chatContentObserver = null; // 监听 #chat 内部的新消息
+let chatContainerObserver = null; // 监听 #chat 容器本身的变化
+let debounceTimer; // 用于防抖动
 
 // -------------------------------------------------------------------
-// 1. 所有辅助函数定义 (与之前版本相同)
+// 1. 设置与界面
 // -------------------------------------------------------------------
 
 const defaultSettings = Object.freeze({
@@ -27,7 +36,19 @@ function getSettings() {
             extension_settings[MODULE_NAME][key] = defaultSettings[key];
         }
     }
-    return extension_settings[MODULE_NAME];
+
+    // 新增逻辑：确保 "none" 选项始终存在且位于列表顶部
+    const settings = extension_settings[MODULE_NAME];
+    const urls = settings.savedFontUrls;
+    const noneIndex = urls.indexOf('none');
+
+    if (noneIndex > -1) {
+        urls.splice(noneIndex, 1); // 如果已存在，先从原位置移除
+    }
+    urls.unshift('none'); // 添加到数组的开头
+    settings.savedFontUrls = [...new Set(urls)]; // 使用 Set 去除重复项，保证唯一性
+
+    return settings;
 }
 
 function saveSettings() {
@@ -37,6 +58,12 @@ function saveSettings() {
 
 function renderSettingsHtml() {
     const settings = getSettings();
+    const optionsHtml = settings.savedFontUrls.map(url => {
+        const text = url === 'none' ? '默认字体 (None)' : url;
+        const selected = url === settings.fontCssUrl ? 'selected' : '';
+        return `<option value="${url}" ${selected}>${text}</option>`;
+    }).join('');
+
     return `
         <div id="model_display_settings" class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
@@ -73,7 +100,7 @@ function renderSettingsHtml() {
                      <div class="form-group">
                         <label for="model_display_saved_fonts">已保存字体</label>
                         <select id="model_display_saved_fonts" class="text_pole">
-                            ${settings.savedFontUrls.map(url => `<option value="${url}" ${url === settings.fontCssUrl ? 'selected' : ''}>${url}</option>`).join('')}
+                            ${optionsHtml}
                         </select>
                     </div>
                 </div>
@@ -93,9 +120,10 @@ function bindSettingsEvents() {
         script.saveSettingsDebounced();
 
         if (settings.enabled) {
-            startObserver();
+            startObservers();
+            restoreAllFromHistory(); // 启用时立即恢复一次
         } else {
-            stopObserver();
+            stopObservers();
         }
     });
 
@@ -126,12 +154,28 @@ function bindSettingsEvents() {
 }
 
 function applyFontCss(url) {
+    // 无论如何，先移除旧的自定义字体样式
     $('#model_display_dynamic_font').remove();
+
+    // 如果选择的是 'none' 或者 url 为空，则直接返回，实现恢复默认
+    if (url === 'none' || !url) {
+        console.log('[模型名称脚本] 已恢复为默认字体。');
+        rerenderAllModelNames(); // 重新渲染以应用默认字体
+        return;
+    }
+
+    // 如果是有效的 URL，则创建并添加新的样式标签
     const style = document.createElement('style');
     style.id = 'model_display_dynamic_font';
     style.textContent = `@import url("${url}");`;
     document.head.appendChild(style);
+    console.log(`[模型名称脚本] 已应用新字体: ${url}`);
+    rerenderAllModelNames(); // 重新渲染以应用新字体
 }
+
+// -------------------------------------------------------------------
+// 2. 核心显示与辅助函数
+// -------------------------------------------------------------------
 
 function rerenderAllModelNames(revert = false) {
     document.querySelectorAll('#chat .mes .timestamp-icon[data-model-injected="true"]').forEach(icon => {
@@ -141,11 +185,16 @@ function rerenderAllModelNames(revert = false) {
             icon.style.height = '';
             icon.removeAttribute('data-model-injected');
         } else {
+            // 在恢复模式下，让 restoreAllFromHistory 来处理
             icon.dataset.modelInjected = 'false';
-            processLatestMessage(icon.closest('.mes'));
         }
     });
+    // 如果插件仍然启用，则触发一次恢复扫描
+    if (!revert && getSettings().enabled) {
+        restoreAllFromHistory();
+    }
 }
+
 
 function deepQuerySelector(selector, root = document) {
     try {
@@ -192,53 +241,118 @@ function processIcon(iconSvg, modelName) {
 }
 
 // -------------------------------------------------------------------
-// 2. 核心逻辑: 完全复刻自你的可用代码
+// 3. 历史记录与双重观察者逻辑 (最终简化版)
 // -------------------------------------------------------------------
 
-let chatObserver = null;
-let debounceTimer; // 用于延时处理
+/**
+ * 处理单个消息，读取模型名称并写入历史记录。
+ * 内部包含一个短暂延时，以确保模型名称已加载。
+ * @param {HTMLElement} messageElement - .mes 消息元素
+ */
+function processAndRecordMessage(messageElement) {
+    if (!messageElement || messageElement.getAttribute('is_user') === 'true') return;
 
-// 【修正】这个函数不再接收参数，而是自己去寻找最后一条消息
-function processLatestMessage() {
-    const lastMessage = document.querySelector('#chat .mes:last-of-type');
-    if (!lastMessage || lastMessage.getAttribute('is_user') === 'true') {
-        return;
-    }
-    const iconSvg = deepQuerySelector('.icon-svg.timestamp-icon', lastMessage);
-    if (iconSvg) {
-        const modelName = getCurrentModelName(lastMessage);
-        if (modelName) {
+    // 关键改动：增加一个短暂的延时，模仿原始版本的成功策略。
+    // 这给了应用程序足够的时间来将模型名称写入DOM。
+    setTimeout(() => {
+        const iconSvg = deepQuerySelector('.icon-svg.timestamp-icon', messageElement);
+        const idElement = messageElement.querySelector('.mesIDDisplay');
+        if (!iconSvg || !idElement) return;
+
+        const messageId = idElement.textContent.replace('#', '');
+        const modelName = getCurrentModelName(messageElement);
+
+        if (messageId && modelName) {
+            // 成功获取，记录历史并显示
+            modelHistory[messageId] = modelName;
             processIcon(iconSvg, modelName);
+        } else {
+            // 如果延迟后仍然失败，在控制台发出警告，方便调试
+            console.warn(`[模型名称脚本] 延迟后仍无法获取楼层 #${messageId} 的模型名称。`);
         }
-    }
+    }, 350); // 350毫秒对于大多数情况是安全且充足的。
 }
 
-function startObserver() {
-    if (chatObserver) return;
+/**
+ * 扫描所有消息，并根据历史记录恢复模型标签显示 (此函数无需修改)。
+ */
+function restoreAllFromHistory() {
+    if (!getSettings().enabled) return;
+
+    setTimeout(() => {
+        const messages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
+        messages.forEach(message => {
+            const iconSvg = deepQuerySelector('.icon-svg.timestamp-icon', message);
+            const idElement = message.querySelector('.mesIDDisplay');
+
+            if (iconSvg && idElement && iconSvg.dataset.modelInjected !== 'true') {
+                const messageId = idElement.textContent.replace('#', '');
+                if (modelHistory[messageId]) {
+                    processIcon(iconSvg, modelHistory[messageId]);
+                }
+            }
+        });
+        console.log('[模型名称脚本] 完成历史记录恢复扫描。');
+    }, 250);
+}
+
+/**
+ * 启动所有监听器 (此函数逻辑保持不变)。
+ */
+function startObservers() {
+    stopObservers();
+
     const chatNode = document.getElementById('chat');
-    if (!chatNode) {
-        setTimeout(startObserver, 500);
-        return;
+    if (chatNode) {
+        chatContentObserver = new MutationObserver((mutationsList) => {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType === 1) {
+                            if (node.matches('.mes')) {
+                                processAndRecordMessage(node);
+                            } else if (node.querySelector) {
+                                node.querySelectorAll('.mes').forEach(processAndRecordMessage);
+                            }
+                        }
+                    });
+                }
+            }
+        });
+        chatContentObserver.observe(chatNode, { childList: true, subtree: true });
+        console.log('[模型名称脚本] 新消息监听器已启动。');
     }
 
-    // 【修正】回调函数完全复刻你的可用代码逻辑
-    const observerCallback = () => {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(processLatestMessage, 250);
-    };
-
-    chatObserver = new MutationObserver(observerCallback);
-    // 使用 subtree:true 来确保能监听到所有深层变化
-    chatObserver.observe(chatNode, { childList: true, subtree: true });
-    console.log('[动态显示模型名称] 最终版 MutationObserver 已启动。');
+    chatContainerObserver = new MutationObserver((mutationsList) => {
+        for (const mutation of mutationsList) {
+            if (mutation.type === 'childList') {
+                mutation.addedNodes.forEach(node => {
+                    if (node.nodeType === 1 && node.id === 'chat') {
+                        console.log('[模型名称脚本] 检测到 #chat 容器重载，准备恢复历史...');
+                        restoreAllFromHistory();
+                        startObservers();
+                    }
+                });
+            }
+        }
+    });
+    chatContainerObserver.observe(document.body, { childList: true });
+    console.log('[模型名称脚本] 容器重载监听器已启动。');
 }
 
-function stopObserver() {
-    if (chatObserver) {
-        chatObserver.disconnect();
-        chatObserver = null;
-        console.log('[动态显示模型名称] MutationObserver 已停止。');
+/**
+ * 停止所有监听器 (此函数无需修改)。
+ */
+function stopObservers() {
+    if (chatContentObserver) {
+        chatContentObserver.disconnect();
+        chatContentObserver = null;
     }
+    if (chatContainerObserver) {
+        chatContainerObserver.disconnect();
+        chatContainerObserver = null;
+    }
+    console.log('[模型名称脚本] 所有监听器已停止。');
 }
 
 // -------------------------------------------------------------------
@@ -249,9 +363,6 @@ const REPO_API_URL = 'https://api.github.com/repos/GlacierCifer/ST-Model-Display
 const SCRIPT_RAW_URL = 'https://raw.githubusercontent.com/GlacierCifer/ST-Model-Display/main/ST-Model-Display.user.js';
 const VERSION_STORAGE_KEY = 'model_display_version_sha';
 
-/**
- * 在设置面板显示更新通知
- */
 function displayUpdateNotification() {
     const settingsHeader = $('#model_display_settings .inline-drawer-header');
     if (settingsHeader.length && $('#model_display_update_notice').length === 0) {
@@ -270,9 +381,6 @@ function displayUpdateNotification() {
     }
 }
 
-/**
- * 检查脚本是否有新版本
- */
 async function checkForUpdates() {
     try {
         const response = await fetch(REPO_API_URL);
@@ -282,7 +390,7 @@ async function checkForUpdates() {
         }
 
         const data = await response.json();
-        const latestSha = data.sha || (Array.isArray(data) ? data[0].sha : null);
+        const latestSha = data.sha;
 
         if (!latestSha) {
              console.warn('[模型名称脚本] 检查更新失败，无法解析 API 响应。');
@@ -292,15 +400,12 @@ async function checkForUpdates() {
         const currentSha = localStorage.getItem(VERSION_STORAGE_KEY);
 
         if (!currentSha) {
-            // 如果是首次运行，直接存储最新版本号，不提示更新
             localStorage.setItem(VERSION_STORAGE_KEY, latestSha);
-            console.log('[模型名称脚本] 已初始化版本号:', latestSha);
+            console.log('[模型名称脚本] 已初始化版本号:', latestSha.substring(0,7));
         } else if (currentSha !== latestSha) {
-            // 如果本地版本号与远程不一致，则提示更新
             console.log(`[模型名称脚本] 检测到新版本！当前: ${currentSha.substring(0,7)}, 最新: ${latestSha.substring(0,7)}`);
             displayUpdateNotification();
         } else {
-            // 版本一致
             console.log('[模型名称脚本] 当前已是最新版本。');
         }
     } catch (error) {
@@ -308,8 +413,9 @@ async function checkForUpdates() {
     }
 }
 
+
 // -------------------------------------------------------------------
-// 3. 插件入口点 (与之前版本相同)
+// 5. 插件入口点
 // -------------------------------------------------------------------
 
 function initializeExtension() {
@@ -319,13 +425,13 @@ function initializeExtension() {
         applyFontCss(getSettings().fontCssUrl);
 
         if (getSettings().enabled) {
-            startObserver();
+            startObservers();
+            restoreAllFromHistory();
         }
 
-        // 新增调用：在插件初始化时检查更新
         checkForUpdates();
 
-        console.log('[动态显示模型名称] 插件完全初始化成功。');
+        console.log('[动态显示模型名称] 插件（整合版）完全初始化成功。');
 
     } catch (e) {
         console.error('[动态显示模型名称] 初始化过程中发生致命错误:', e);

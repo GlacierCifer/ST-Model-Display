@@ -1,9 +1,9 @@
 {
-  "display_name": "Model Name Display",
+  "display_name": "小杂物集",
   "name": "model-display",
   "version": "1.0.0",
-  "author": "Zhu Sun",
+  "homePage": "https://github.com/GlacierCifer/ST-Model-Display",
+  "author": "竺笋",
   "js": "script.js",
-  "css": "style.css",
   "loading_order": 999
 }
