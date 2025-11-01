@@ -38,10 +38,6 @@ const ModelDisplayModule = {
     // 1.2 模块初始化入口
     // ---------------------------------------------------------------
     init() {
-      
-       ModelDisplayModule.init();
-       PlaceholderModule.init();
-       SloganInjectionModule.init();
 
         if (this.getSettings().enabled) {
             this.startObservers();
@@ -387,94 +383,120 @@ const PlaceholderModule = {
         });
     },
 
-    async applyLogic() {
-        if (!this.getSettings().enabled) return;
+   async applyLogic() {
+       if (!this.getSettings().enabled) return;
 
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        if (!textarea) return;
+       const textarea = document.getElementById(this.TEXTAREA_ID);
+       if (!textarea) return;
 
-        if (this.placeholderObserver) this.placeholderObserver.disconnect();
+       if (this.placeholderObserver) this.placeholderObserver.disconnect();
 
-        const settings = this.getSettings();
-        const mode = settings.placeholderSource;
-        const customText = settings.customPlaceholder.trim();
+       const settings = this.getSettings();
+       const mode = settings.placeholderSource;
+       const customText = settings.customPlaceholder.trim();
 
-        if (mode === 'custom') {
-            textarea.placeholder = customText || this.resolveFallbackPlaceholder(textarea);
-        } else if (mode === 'auto') {
-            if (this.autoSlogan) {
-                textarea.placeholder = this.autoSlogan;
-            } else {
-                textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
-            }
-        } else {
-            await this.applyWorldBookLogic(textarea);
-        }
+       let nextPlaceholder;
 
-        this.startPlaceholderObserver();
-    },
+       if (mode === 'custom') {
+           if (customText) {
+               nextPlaceholder = customText;
+           } else if (this.autoSlogan) {
+               nextPlaceholder = this.autoSlogan;
+           } else {
+               nextPlaceholder = await this.applyWorldBookLogic(textarea);
+               if (!nextPlaceholder) nextPlaceholder = this.resolveFallbackPlaceholder(textarea);
+           }
+       } else if (mode === 'auto') {
+           if (this.autoSlogan) {
+               nextPlaceholder = this.autoSlogan;
+           } else {
+               nextPlaceholder = await this.applyWorldBookLogic(textarea);
+               if (!nextPlaceholder) nextPlaceholder = this.resolveFallbackPlaceholder(textarea);
+           }
+       } else {
+           nextPlaceholder = await this.applyWorldBookLogic(textarea);
+           if (!nextPlaceholder) nextPlaceholder = this.resolveFallbackPlaceholder(textarea);
+       }
+
+       textarea.placeholder = nextPlaceholder;
+
+       this.startPlaceholderObserver();
+   },
 
     resolveFallbackPlaceholder(textarea) {
         return textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
     },
 
-    setAutoSlogan(text) {
-        if (!text) return;
-        this.autoSlogan = text;
-        if (this.getSettings().placeholderSource === 'auto') {
-            this.applyLogic();
-        }
-    },
+  setAutoSlogan(text) {
+      if (!text) return;
+      this.autoSlogan = text;
+      const settings = this.getSettings();
+      if (!settings.enabled) return;
 
-    async applyWorldBookLogic(textarea) {
-        let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
+      const needsUpdate =
+          settings.placeholderSource === 'auto' ||
+          (settings.placeholderSource === 'custom' && !settings.customPlaceholder.trim());
 
-        try {
-            if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
-                const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
-                if (lorebookName) {
-                    const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
-                    if (Array.isArray(activeEntries)) {
-                        const targetEntry = activeEntries.find(entry => entry.comment === '输入框');
-                        if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
-                            finalPlaceholder = targetEntry.content;
-                        }
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('[模块-输入框] 读取世界书时出错:', error);
-        }
+      if (needsUpdate) {
+          this.applyLogic();
+      }
+  },
 
-        textarea.placeholder = finalPlaceholder;
-        console.log(`[模块-输入框] 已应用世界书/默认提示: <q>"${finalPlaceholder}"</q>`);
-    },
+   async applyWorldBookLogic(textarea) {
+       let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
 
-    async onCharacterSwitch() {
-        console.log('%c[模块-输入框] 角色切换，重新应用逻辑...', 'color: cyan;');
-        await this.applyLogic();
-    },
+       try {
+           if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
+               const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
+               if (lorebookName) {
+                   const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
+                   if (Array.isArray(activeEntries)) {
+                       const targetEntry = activeEntries.find(entry => entry.comment === '输入框');
+                       if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
+                           finalPlaceholder = targetEntry.content;
+                       }
+                   }
+               }
+           }
+       } catch (error) {
+           console.error('[模块-输入框] 读取世界书时出错:', error);
+       }
 
-    startPlaceholderObserver() {
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        if (!textarea || !this.getSettings().enabled) return;
+       textarea.placeholder = finalPlaceholder;
+       console.log(`[模块-输入框] 已应用世界书/默认提示: "${finalPlaceholder}"`);
+       return finalPlaceholder;
+   }
 
-        this.placeholderObserver = new MutationObserver(() => {
-            const settings = this.getSettings();
-            const mode = settings.placeholderSource;
-            const target = mode === 'custom'
-                ? settings.customPlaceholder.trim() || this.resolveFallbackPlaceholder(textarea)
-                : mode === 'auto'
-                    ? (this.autoSlogan || this.resolveFallbackPlaceholder(textarea))
-                    : textarea.placeholder;
+async onCharacterSwitch() {
+       console.log('%c[模块-输入框] 角色切换，重新应用逻辑...', 'color: cyan;');
+       await this.applyLogic();
+   },
 
-            if (textarea.placeholder !== target) {
-                this.applyLogic();
-            }
-        });
+   startPlaceholderObserver() {
+       const textarea = document.getElementById(this.TEXTAREA_ID);
+       if (!textarea || !this.getSettings().enabled) return;
 
-        this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
-    },
+       this.placeholderObserver = new MutationObserver(async () => {
+           const settings = this.getSettings();
+           const mode = settings.placeholderSource;
+           const current = textarea.placeholder;
+           let expected;
+
+           if (mode === 'custom') {
+               expected = settings.customPlaceholder.trim() || this.autoSlogan || await this.applyWorldBookLogic(textarea) || this.resolveFallbackPlaceholder(textarea);
+           } else if (mode === 'auto') {
+               expected = this.autoSlogan || await this.applyWorldBookLogic(textarea) || this.resolveFallbackPlaceholder(textarea);
+           } else {
+               expected = await this.applyWorldBookLogic(textarea) || this.resolveFallbackPlaceholder(textarea);
+           }
+
+           if (current !== expected) {
+               textarea.placeholder = expected;
+           }
+       });
+
+       this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
+   }
 
     waitForIframe() {
         return new Promise(resolve => {
@@ -497,13 +519,14 @@ const PlaceholderModule = {
 // ###################################################################
 
 const SloganInjectionModule = {
-PROMPT_TEXT: [
-       '请在每次回答末尾额外输出一个 HTML 注释，格式为 ``。',
+   initialized: false,
+   PROMPT_TEXT: [
+       '请在每次回答末尾额外输出一个 HTML 注释，格式为 `<!-- ✦❋内容 -->`。',
        '注释内仅包含角色当下的精神标语 / 心声，散文式，最长 20 个汉字。',
        '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，冷静、含蓄，不煽情不过度解释。',
        '标语在注释之外不要重复，也不要额外解释。'
    ].join('\n'),
-   TAG_REGEX: //,
+   TAG_REGEX: /<!--\s*✦❋([\s\S]*?)-->/,
 
     init() {
         if (this.initialized || !script.eventSource || !script.event_types) return;
@@ -525,7 +548,7 @@ PROMPT_TEXT: [
         const message = window.chat[chatId];
         if (!message || typeof message.mes !== 'string') return;
 
-const match = message.mes.match(this.TAG_REGEX);
+   const match = message.mes.match(this.TAG_REGEX);
    if (!match) return;
 
    const raw = match[1].trim();
@@ -641,6 +664,7 @@ function initializeCombinedExtension() {
         // 4. 分别调用每个模块的初始化函数
         ModelDisplayModule.init();
         PlaceholderModule.init();
+        SloganInjectionModule.init();
 
         console.log('[小美化集] 所有模块均已加载。');
 
@@ -655,4 +679,4 @@ const settingsCheckInterval = setInterval(() => {
         clearInterval(settingsCheckInterval);
         initializeCombinedExtension();
     }
-}, 500);
+}, 500);
