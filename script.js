@@ -275,19 +275,19 @@ renderSettingsHtml() {
 //
 // ###################################################################
 const PlaceholderModule = {
-    // 2.0 模块内部状态和常量
-    name: 'worldbook_placeholder', // 保持旧名称以兼容已有设置
+    name: 'worldbook_placeholder',
     iframeWindow: null,
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
 
-    // 2.1 默认设置 (新增自定义占位符)
     defaultSettings: Object.freeze({
         enabled: true,
-        customPlaceholder: '', // 用于存储用户自定义的全局占位符
+        customPlaceholder: '',
+        placeholderSource: 'custom', // 'custom' | 'worldbook' | 'auto'
     }),
 
-    // 2.2 模块初始化入口
+    autoSlogan: '',
+
     init() {
         if (!this.getSettings().enabled) {
             console.log('[模块-输入框] 已禁用，跳过初始化。');
@@ -306,15 +306,16 @@ const PlaceholderModule = {
         });
     },
 
-    // 2.3 设置与界面 (完全重写)
     getSettings() {
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
         }
-        if (extension_settings[this.name].customPlaceholder === undefined) {
-            extension_settings[this.name].customPlaceholder = this.defaultSettings.customPlaceholder;
+        const settings = extension_settings[this.name];
+        if (settings.customPlaceholder === undefined) settings.customPlaceholder = this.defaultSettings.customPlaceholder;
+        if (!['custom', 'worldbook', 'auto'].includes(settings.placeholderSource)) {
+            settings.placeholderSource = this.defaultSettings.placeholderSource;
         }
-        return extension_settings[this.name];
+        return settings;
     },
 
     renderSettingsHtml() {
@@ -324,7 +325,21 @@ const PlaceholderModule = {
                 <hr>
                 <h3 class="sub-header">输入框文字替换</h3>
                 <div class="form-group">
-                    <p class="sub-label">在此处输入全局替换文本。如果留空并应用，将恢复为读取世界书“输入框”条目或默认提示。</p>
+                    <p class="sub-label">选择使用的提示来源；自定义项留空则回退到其他模式默认提示。</p>
+                    <div class="form-group">
+                        <label class="checkbox_label">
+                            <input type="radio" name="placeholder_source" value="custom" ${settings.placeholderSource === 'custom' ? 'checked' : ''}>
+                            <span>自定义全局提示</span>
+                        </label>
+                        <label class="checkbox_label">
+                            <input type="radio" name="placeholder_source" value="worldbook" ${settings.placeholderSource === 'worldbook' ? 'checked' : ''}>
+                            <span>世界书提取</span>
+                        </label>
+                        <label class="checkbox_label">
+                            <input type="radio" name="placeholder_source" value="auto" ${settings.placeholderSource === 'auto' ? 'checked' : ''}>
+                            <span>自主回复摘录</span>
+                        </label>
+                    </div>
                     <div style="display: flex; gap: 10px;">
                        <input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${settings.customPlaceholder}">
                        <button id="custom_placeholder_apply" class="menu_button">应用</button>
@@ -341,9 +356,15 @@ const PlaceholderModule = {
             this.applyLogic();
             alert('输入框提示已更新！');
         });
+
+        $(document).on('change', 'input[name="placeholder_source"]', (event) => {
+            const value = $(event.currentTarget).val();
+            this.getSettings().placeholderSource = value;
+            script.saveSettingsDebounced();
+            this.applyLogic();
+        });
     },
 
-    // 2.4 核心逻辑 (完全重写)
     async applyLogic() {
         if (!this.getSettings().enabled) return;
 
@@ -352,16 +373,31 @@ const PlaceholderModule = {
 
         if (this.placeholderObserver) this.placeholderObserver.disconnect();
 
-        const customText = this.getSettings().customPlaceholder;
+        const settings = this.getSettings();
+        const mode = settings.placeholderSource;
+        const customText = settings.customPlaceholder.trim();
 
-        if (customText && customText.trim() !== '') {
-            textarea.placeholder = customText;
-            console.log(`[模块-输入框] 已应用自定义全局提示: "${customText}"`);
-        } else {
+        if (mode === 'custom') {
+            textarea.placeholder = customText || textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
+        } else if (mode === 'worldbook') {
             await this.applyWorldBookLogic(textarea);
+        } else {
+            if (this.autoSlogan) {
+                textarea.placeholder = this.autoSlogan;
+            } else {
+                await this.applyWorldBookLogic(textarea);
+            }
         }
 
         this.startPlaceholderObserver();
+    },
+
+    setAutoSlogan(text) {
+        if (!text) return;
+        this.autoSlogan = text;
+        if (this.getSettings().placeholderSource === 'auto') {
+            this.applyLogic();
+        }
     },
 
     async applyWorldBookLogic(textarea) {
@@ -374,7 +410,7 @@ const PlaceholderModule = {
                 if (lorebookName) {
                     const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
                     if (Array.isArray(activeEntries)) {
-                        const targetEntry = activeEntries.find(entry => entry.comment === "输入框");
+                        const targetEntry = activeEntries.find(entry => entry.comment === '输入框');
                         if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
                             finalPlaceholder = targetEntry.content;
                         }
@@ -386,7 +422,7 @@ const PlaceholderModule = {
         }
 
         textarea.placeholder = finalPlaceholder;
-        console.log(`[模块-输入框] 已应用世界书/默认提示: "${finalPlaceholder}"`);
+        console.log(`[模块-输入框] 已应用世界书/默认提示: <q>"${finalPlaceholder}"</q>`);
     },
 
     async onCharacterSwitch() {
@@ -398,12 +434,19 @@ const PlaceholderModule = {
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea || !this.getSettings().enabled) return;
 
-        this.placeholderObserver = new MutationObserver((mutationsList) => {
-            const currentPlaceholder = textarea.placeholder;
-            const customText = this.getSettings().customPlaceholder;
-            const isCustomMode = customText && customText.trim() !== '';
+        const settings = this.getSettings();
+        const mode = settings.placeholderSource;
+        const expected = mode === 'custom'
+            ? settings.customPlaceholder.trim()
+            : mode === 'auto'
+                ? this.autoSlogan
+                : textarea.placeholder;
 
-            if (isCustomMode && currentPlaceholder !== customText) {
+        this.placeholderObserver = new MutationObserver(() => {
+            const currentPlaceholder = textarea.placeholder;
+            if (mode === 'custom' && expected !== '' && currentPlaceholder !== expected) {
+                this.applyLogic();
+            } else if (mode === 'auto' && this.autoSlogan && currentPlaceholder !== this.autoSlogan) {
                 this.applyLogic();
             }
         });
@@ -422,6 +465,67 @@ const PlaceholderModule = {
             }, 100);
         });
     }
+};
+
+        ModelDisplayModule.init();
+        PlaceholderModule.init();
+        SloganInjectionModule.init();
+
+// ###################################################################
+//
+//  提示词注入
+//
+// ###################################################################
+
+const SloganInjectionModule = {
+    PROMPT_TEXT: [
+        '请在每次回答的末尾额外追加一个 HTML 注释标签，格式为 。',
+        '句子为角色当前的精神标语 / 金句 / 心声，不超过20字。',
+        '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，散文化、冷静、含蓄，不煽情不解释。',
+        '务必保证注释标签内的句子是唯一输出，不要再复制到正文。'
+    ].join('\n'),
+    TAG_REGEX: //,
+    initialized: false,
+
+    init() {
+        if (this.initialized || !script.eventSource || !script.event_types) return;
+        script.eventSource.on(script.event_types.CHAT_COMPLETION_PROMPT_READY, this.onPromptReady.bind(this));
+        script.eventSource.on(script.event_types.CHARACTER_MESSAGE_RENDERED, this.onMessageRendered.bind(this));
+        this.initialized = true;
+    },
+
+    onPromptReady(eventData = {}) {
+        if (eventData.dryRun === true || !Array.isArray(eventData.chat)) return;
+        eventData.chat.push({ role: 'system', content: this.PROMPT_TEXT });
+    },
+
+    onMessageRendered(chatId) {
+        if (!Array.isArray(window.chat)) return;
+        const message = window.chat[chatId];
+        if (!message || typeof message.mes !== 'string') return;
+
+        const match = this.TAG_REGEX.exec(message.mes);
+        if (!match) return;
+
+        const raw = match[1].trim();
+        const slogan = raw.startsWith('✦❋') ? raw.slice(2).trim() : raw;
+
+        message.mes = message.mes.replace(this.TAG_REGEX, '').trim();
+        if (Array.isArray(message.swipes) && typeof message.swipe_id === 'number') {
+            const activeSwipe = message.swipes[message.swipe_id];
+            if (typeof activeSwipe === 'string') {
+                message.swipes[message.swipe_id] = activeSwipe.replace(this.TAG_REGEX, '').trim();
+            }
+        }
+
+        if (typeof script.saveChatDebounced === 'function') {
+            script.saveChatDebounced();
+        } else if (typeof window.saveChat === 'function') {
+            window.saveChat();
+        }
+
+        PlaceholderModule.setAutoSlogan(slogan);
+    },
 };
 
 // ###################################################################
