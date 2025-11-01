@@ -304,6 +304,87 @@ renderSettingsHtml() {
         });
     },
 
+    getSettings() {
+        if (!extension_settings[this.name]) {
+            extension_settings[this.name] = { ...this.defaultSettings };
+        }
+        const settings = extension_settings[this.name];
+        if (!['custom', 'auto', 'worldbook'].includes(settings.placeholderSource)) {
+            settings.placeholderSource = this.defaultSettings.placeholderSource;
+        }
+        if (settings.customPlaceholder === undefined) {
+            settings.customPlaceholder = this.defaultSettings.customPlaceholder;
+        }
+        return settings;
+    },
+
+    renderSettingsHtml() {
+        const settings = this.getSettings();
+        return `
+            <div id="placeholder_options_wrapper">
+                <hr>
+                <h3 class="sub-header">输入框文字替换</h3>
+                <div class="form-group">
+                    <p class="sub-label">选择提示来源；自定义项留空时会退回到优先级序列中的下一项。</p>
+                    <div class="form-group placeholder-toggle-group">
+                        <label class="checkbox_label">
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="custom" ${settings.placeholderSource === 'custom' ? 'checked' : ''}>
+                            <span>自定义全局提示</span>
+                        </label>
+                        <label class="checkbox_label">
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="auto" ${settings.placeholderSource === 'auto' ? 'checked' : ''}>
+                            <span>自主回复摘录</span>
+                        </label>
+                        <label class="checkbox_label">
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="worldbook" ${settings.placeholderSource === 'worldbook' ? 'checked' : ''}>
+                            <span>世界书提取</span>
+                        </label>
+                    </div>
+                    <div style="display: flex; gap: 10px;">
+                       <input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${settings.customPlaceholder}">
+                       <button id="custom_placeholder_apply" class="menu_button">应用</button>
+                    </div>
+                </div>
+            </div>`;
+    },
+
+    bindSettingsEvents() {
+        $(document).on('click', '#custom_placeholder_apply', () => {
+            const newText = $('#custom_placeholder_input').val();
+            this.getSettings().customPlaceholder = newText;
+            script.saveSettingsDebounced();
+            this.applyLogic();
+            alert('输入框提示已更新！');
+        });
+
+        $(document).on('change', '.placeholder_source_toggle', (event) => {
+            const selected = $(event.currentTarget).data('source');
+            if (!['custom', 'auto', 'worldbook'].includes(selected)) return;
+
+            const settings = this.getSettings();
+            if (settings.placeholderSource !== selected) {
+                settings.placeholderSource = selected;
+                script.saveSettingsDebounced();
+                this.syncSourceToggles();
+                this.applyLogic();
+                return;
+            }
+
+            this.syncSourceToggles();
+        });
+    },
+
+    syncSourceToggles() {
+        const mode = this.getSettings().placeholderSource;
+        $('.placeholder_source_toggle').each(function () {
+            $(this).prop('checked', $(this).data('source') === mode);
+        });
+    },
+
+    resolveFallbackPlaceholder(textarea) {
+        return textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
+    },
+
     // 修改：获取当前角色ID
     getCurrentCharacterId() {
         // 尝试从不同位置获取角色ID
@@ -399,6 +480,7 @@ renderSettingsHtml() {
         }
     },
 
+    // 修复：删除重复的 onCharacterSwitch 方法，只保留这一个
     async onCharacterSwitch() {
         const newCharacterId = this.getCurrentCharacterId();
         console.log('%c[模块-输入框] 角色切换，新角色ID:', 'color: cyan;', newCharacterId, '缓存状态:', this.autoSloganCache[newCharacterId] ? '有缓存' : '无缓存');
@@ -406,6 +488,40 @@ renderSettingsHtml() {
         // 更新当前角色ID
         this.currentCharacterId = newCharacterId;
         await this.applyLogic();
+    },
+
+    startPlaceholderObserver() {
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        const settings = this.getSettings();
+        const expected = settings.customPlaceholder.trim();
+
+        if (!textarea || settings.placeholderSource !== 'custom' || !expected) return;
+
+        this.stopPlaceholderObserver();
+
+        this.placeholderObserver = new MutationObserver((mutationsList) => {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'placeholder' && textarea.placeholder !== expected) {
+                    console.log('[Placeholder] 检测到外部placeholder修改，重新应用自定义文本');
+                    this.stopPlaceholderObserver();
+                    textarea.placeholder = expected;
+                    this.startPlaceholderObserver();
+                    break;
+                }
+            }
+        });
+
+        this.placeholderObserver.observe(textarea, {
+            attributes: true,
+            attributeFilter: ['placeholder'],
+        });
+    },
+
+    stopPlaceholderObserver() {
+        if (this.placeholderObserver) {
+            this.placeholderObserver.disconnect();
+            this.placeholderObserver = null;
+        }
     },
 
     async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
@@ -441,11 +557,6 @@ renderSettingsHtml() {
             console.log('[Placeholder] 已设置占位符:', finalPlaceholder);
         }
         return finalPlaceholder;
-    },
-
-    async onCharacterSwitch() {
-        console.log('%c[模块-输入框] 角色切换，重新应用逻辑...', 'color: cyan;');
-        await this.applyLogic();
     },
 
     waitForIframe() {
