@@ -76,23 +76,17 @@ renderSettingsHtml() {
 
             <div class="form-group">
                 <label for="model_display_font_size">字体大小:</label>
-                <div>
-                    <input type="text" id="model_display_font_size" class="text_pole" value="${settings.fontSize}">
-                </div>
+                <input type="text" id="model_display_font_size" class="text_pole" value="${settings.fontSize}">
             </div>
 
             <div class="form-group">
                 <label for="model_display_prefix">前缀:</label>
-                <div>
-                    <input type="text" id="model_display_prefix" class="text_pole" value="${settings.prefix}">
-                </div>
+                <input type="text" id="model_display_prefix" class="text_pole" value="${settings.prefix}">
             </div>
 
             <div class="form-group">
                 <label for="model_display_suffix">后缀:</label>
-                <div>
-                    <input type="text" id="model_display_suffix" class="text_pole" value="${settings.suffix}">
-                </div>
+                <input type="text" id="model_display_suffix" class="text_pole" value="${settings.suffix}">
             </div>
         </div>`;
 },
