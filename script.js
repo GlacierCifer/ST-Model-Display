@@ -3,42 +3,42 @@ import { extension_settings } from '../../../extensions.js';
 
 // ===================================================================
 //
-//  小杂物集 (Misc Utilities) v1.0.2
+//  小杂物集 (Misc Utilities) v1.0.2-modified
 //  - 模块1: 模型名称显示 (Model Display)
 //  - 模块2: 世界书输入框提示 (World Book Placeholder)
+//
+//  - 修改说明: 移除了模型名称显示功能中的字体自定义相关功能及UI。
 //
 // ===================================================================
 
 // ###################################################################
 //
-//  模块 1: 模型名称显示 (Model Display)
+//  模块 1: 模型名称显示 (Model Display) - [已简化]
 //
 // ###################################################################
 const ModelDisplayModule = {
     // 1.0 模块内部状态和常量
     // ---------------------------------------------------------------
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.0.2',
+    CURRENT_SCRIPT_VERSION: '1.0.2-modified',
     SCRIPT_RAW_URL: 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/script.js',
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
 
-    // 1.1 默认设置
+    // 1.1 默认设置 (已简化)
     // ---------------------------------------------------------------
     defaultSettings: Object.freeze({
         enabled: true,
         fontSize: '0.85em',
         prefix: '|',
         suffix: '|',
-        fontCssUrl: 'https://fontsapi.zeoseven.com/371/main/result.css',
-        savedFontUrls: ['https://fontsapi.zeoseven.com/371/main/result.css'],
     }),
 
     // 1.2 模块初始化入口
     // ---------------------------------------------------------------
     init() {
-        this.applyFontCss(this.getSettings().fontCssUrl);
+
         if (this.getSettings().enabled) {
             this.startObservers();
             this.restoreAllFromHistory();
@@ -53,18 +53,13 @@ const ModelDisplayModule = {
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
         }
+
         for (const key of Object.keys(this.defaultSettings)) {
             if (!Object.hasOwnProperty.call(extension_settings[this.name], key)) {
                 extension_settings[this.name][key] = this.defaultSettings[key];
             }
         }
-        const settings = extension_settings[this.name];
-        const urls = settings.savedFontUrls;
-        const noneIndex = urls.indexOf('none');
-        if (noneIndex > -1) { urls.splice(noneIndex, 1); }
-        urls.unshift('none');
-        settings.savedFontUrls = [...new Set(urls)];
-        return settings;
+        return extension_settings[this.name];
     },
 
     saveSettings() {
@@ -74,12 +69,6 @@ const ModelDisplayModule = {
 
     renderSettingsHtml() {
         const settings = this.getSettings();
-        const optionsHtml = settings.savedFontUrls.map(url => {
-            const text = url === 'none' ? '默认字体 (None)' : url;
-            const selected = url === settings.fontCssUrl ? 'selected' : '';
-            return `<option value="${url}" ${selected}>${text}</option>`;
-        }).join('');
-
         return `
             <div id="model_display_options_wrapper">
                 <hr>
@@ -87,8 +76,6 @@ const ModelDisplayModule = {
                 <div class="form-group"><label>字体大小:</label><input type="text" id="model_display_font_size" class="text_pole" value="${settings.fontSize}"></div>
                 <div class="form-group"><label>前缀:</label><input type="text" id="model_display_prefix" class="text_pole" value="${settings.prefix}"></div>
                 <div class="form-group"><label>后缀:</label><input type="text" id="model_display_suffix" class="text_pole" value="${settings.suffix}"></div>
-                <div class="form-group"><label>字体 CSS 链接:</label><div style="display: flex; gap: 5px;"><input type="text" id="model_display_font_css_url_new" class="text_pole" placeholder="粘贴新的CSS链接..."><button id="model_display_apply_font" class="menu_button">应用</button></div></div>
-                <div class="form-group"><label>已保存字体:</label><select id="model_display_saved_fonts" class="text_pole">${optionsHtml}</select></div>
             </div>`;
     },
 
@@ -96,39 +83,6 @@ const ModelDisplayModule = {
         $(document).on('input', '#model_display_font_size', (e) => { this.getSettings().fontSize = $(e.currentTarget).val(); this.saveSettings(); });
         $(document).on('input', '#model_display_prefix', (e) => { this.getSettings().prefix = $(e.currentTarget).val(); this.saveSettings(); });
         $(document).on('input', '#model_display_suffix', (e) => { this.getSettings().suffix = $(e.currentTarget).val(); this.saveSettings(); });
-
-        $(document).on('click', '#model_display_apply_font', () => {
-            const newUrl = $('#model_display_font_css_url_new').val().trim();
-            if (newUrl) {
-                this.applyFontCss(newUrl);
-                this.getSettings().fontCssUrl = newUrl;
-                if (!this.getSettings().savedFontUrls.includes(newUrl)) {
-                    this.getSettings().savedFontUrls.push(newUrl);
-                }
-                this.saveSettings();
-                alert('新字体已应用并保存！为看到选择列表更新，请刷新页面。');
-            }
-        });
-
-        $(document).on('change', '#model_display_saved_fonts', (e) => {
-            const selectedUrl = $(e.currentTarget).val();
-            this.applyFontCss(selectedUrl);
-            this.getSettings().fontCssUrl = selectedUrl;
-            this.saveSettings();
-        });
-    },
-
-    applyFontCss(url) {
-        $('#model_display_dynamic_font').remove();
-        if (url === 'none' || !url) {
-            this.rerenderAllModelNames();
-            return;
-        }
-        const style = document.createElement('style');
-        style.id = 'model_display_dynamic_font';
-        style.textContent = `@import url("${url}");`;
-        document.head.appendChild(style);
-        this.rerenderAllModelNames();
     },
 
     rerenderAllModelNames(revert = false) {
@@ -191,9 +145,6 @@ const ModelDisplayModule = {
         });
     },
 
-    // #######################
-    // ###  核心修改在此处  ###
-    // #######################
     waitForElementAndProcess(messageElement, timeout = 5000) {
         if (!messageElement || messageElement.getAttribute('is_user') === 'true') return;
         const startTime = Date.now();
@@ -201,7 +152,6 @@ const ModelDisplayModule = {
             if (Date.now() - startTime > timeout) {
                 clearInterval(intervalId);
                 const finalIdElement = messageElement.querySelector('.mesIDDisplay');
-                // 只有在非 0 和 1 的楼层超时才发出警告
                 if (finalIdElement) {
                     const messageId = finalIdElement.textContent.replace('#', '');
                     if (messageId !== '0' && messageId !== '1') {
@@ -215,8 +165,6 @@ const ModelDisplayModule = {
             if (!iconSvg || !idElement) { return; }
 
             const messageId = idElement.textContent.replace('#', '');
-
-            // 【新增】如果楼层ID为0或1，则立即停止处理，避免不必要的等待和超时警告
             if (messageId === '0' || messageId === '1') {
                 clearInterval(intervalId);
                 return;
@@ -246,7 +194,6 @@ const ModelDisplayModule = {
                     if (this.modelHistory[messageId]) {
                         this.processIcon(iconSvg, this.modelHistory[messageId]);
                     } else {
-                        // 此处调用已修改的函数，它会自动处理0和1楼层
                         this.waitForElementAndProcess(message);
                     }
                 }
@@ -297,31 +244,7 @@ const ModelDisplayModule = {
         if (!indicator.length) return;
 
         indicator.text(`v${this.CURRENT_SCRIPT_VERSION}`);
-        // 移除旧的点击事件，确保其不可点击
-        indicator.off('click.update').css('cursor', 'default');
-
-        try {
-            const response = await fetch(this.SCRIPT_RAW_URL + `?t=${new Date().getTime()}`);
-            if (!response.ok) {
-                indicator.attr('title', '检查更新失败');
-                return;
-            }
-            const remoteScriptContent = await response.text();
-            const latestVersion = remoteScriptContent.match(/@version\s+([\d.]+)/)?.[1];
-
-            if (latestVersion && this.CURRENT_SCRIPT_VERSION !== latestVersion) {
-                // 发现新版本：添加(new!)标签，并修改提示信息
-                indicator.text(`v${this.CURRENT_SCRIPT_VERSION} (new!)`);
-                indicator.addClass('update-available');
-                indicator.attr('title', `发现新版本 v${latestVersion}。请通过官方扩展管理器进行更新。`);
-            } else {
-                // 未发现新版本或版本号相同
-                indicator.attr('title', '当前已是最新版本');
-            }
-        } catch (error) {
-            console.error('[模块-模型显示] 检查更新失败:', error);
-            indicator.attr('title', `检查更新时出错: ${error.message}`);
-        }
+        indicator.off('click.update').css('cursor', 'default').attr('title', '这是一个修改版，无法自动检查更新。');
     },
 };
 
@@ -350,17 +273,13 @@ const PlaceholderModule = {
             return;
         }
 
-        // 无论何种模式，都需要等待Iframe，因为核心API在其中
         this.waitForIframe().then(() => {
-            // 始终监听角色切换，因为用户可能随时清空自定义文本，回到世界书模式
             if (script.eventSource && script.event_types) {
                 script.eventSource.on(script.event_types.CHAT_CHANGED, this.onCharacterSwitch.bind(this));
             } else {
                 console.error('[模块-输入框] 致命错误：无法访问 script.eventSource。');
             }
-            // 始终观察输入框本身的变化
             this.startPlaceholderObserver();
-            // 首次加载时立即应用一次逻辑
             this.applyLogic();
             console.log('[模块-输入框] 初始化成功。');
         });
@@ -371,7 +290,6 @@ const PlaceholderModule = {
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
         }
-        // 确保新设置项存在
         if (extension_settings[this.name].customPlaceholder === undefined) {
             extension_settings[this.name].customPlaceholder = this.defaultSettings.customPlaceholder;
         }
@@ -399,7 +317,7 @@ const PlaceholderModule = {
             const newText = $('#custom_placeholder_input').val();
             this.getSettings().customPlaceholder = newText;
             script.saveSettingsDebounced();
-            this.applyLogic(); // 立即应用新逻辑
+            this.applyLogic();
             alert('输入框提示已更新！');
         });
     },
@@ -411,21 +329,17 @@ const PlaceholderModule = {
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
 
-        // 停止旧的观察者，防止重复触发
         if (this.placeholderObserver) this.placeholderObserver.disconnect();
 
         const customText = this.getSettings().customPlaceholder;
 
-        // 优先使用用户自定义的全局文本
         if (customText && customText.trim() !== '') {
             textarea.placeholder = customText;
             console.log(`[模块-输入框] 已应用自定义全局提示: "${customText}"`);
         } else {
-            // 如果自定义文本为空，则回退到世界书逻辑
             await this.applyWorldBookLogic(textarea);
         }
 
-        // 重新启动观察者
         this.startPlaceholderObserver();
     },
 
@@ -454,7 +368,6 @@ const PlaceholderModule = {
         console.log(`[模块-输入框] 已应用世界书/默认提示: "${finalPlaceholder}"`);
     },
 
-    // 角色切换时，只需重新应用主逻辑即可
     async onCharacterSwitch() {
         console.log('%c[模块-输入框] 角色切换，重新应用逻辑...', 'color: cyan;');
         await this.applyLogic();
@@ -465,17 +378,12 @@ const PlaceholderModule = {
         if (!textarea || !this.getSettings().enabled) return;
 
         this.placeholderObserver = new MutationObserver((mutationsList) => {
-            // 当其他脚本（如连接状态）修改placeholder时，我们的逻辑需要重新覆盖它
             const currentPlaceholder = textarea.placeholder;
             const customText = this.getSettings().customPlaceholder;
             const isCustomMode = customText && customText.trim() !== '';
 
-            // 如果当前显示的不是我们的目标文本，则强制恢复
             if (isCustomMode && currentPlaceholder !== customText) {
                 this.applyLogic();
-            } else if (!isCustomMode) {
-                // 在世界书模式下，情况复杂，为避免循环，只在关键时刻触发
-                // 这里的逻辑可以简化为相信onCharacterSwitch已经处理了大部分情况
             }
         });
         this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
@@ -514,19 +422,14 @@ function initializeCombinedExtension() {
                     <div class="version-row">
                         <span class="version-indicator" id="model_display_version_indicator"></span>
                     </div>
-
-                    <!-- 开关区域: 使用SillyTavern标准的原生复选框结构 -->
                     <label class="checkbox_label">
                         <input type="checkbox" id="misc_model_display_toggle" ${ModelDisplayModule.getSettings().enabled ? 'checked' : ''}>
                         <span>模型名称显示</span>
                     </label>
-
                     <label class="checkbox_label">
                         <input type="checkbox" id="misc_placeholder_toggle" ${PlaceholderModule.getSettings().enabled ? 'checked' : ''}>
                         <span>输入框文字替换</span>
                     </label>
-
-                    <!-- 模块设置区域 -->
                     <div id="model_display_settings_panel" style="${ModelDisplayModule.getSettings().enabled ? '' : 'display: none;'}">
                         ${ModelDisplayModule.renderSettingsHtml()}
                     </div>
@@ -535,9 +438,7 @@ function initializeCombinedExtension() {
                     </div>
                 </div>
             </div>
-
             <style>
-
                 .version-row {
                     display: flex;
                     justify-content: flex-end;
@@ -563,7 +464,6 @@ function initializeCombinedExtension() {
         // 2. 插入UI并绑定主开关事件
         $('#extensions_settings').append(combinedSettingsHtml);
 
-        // 模型显示开关
         $(document).on('change', '#misc_model_display_toggle', (event) => {
             const isEnabled = $(event.currentTarget).is(':checked');
             ModelDisplayModule.getSettings().enabled = isEnabled;
@@ -573,13 +473,11 @@ function initializeCombinedExtension() {
             script.saveSettingsDebounced();
         });
 
-        // 输入框替换开关
         $(document).on('change', '#misc_placeholder_toggle', (event) => {
             const isEnabled = $(event.currentTarget).is(':checked');
             PlaceholderModule.getSettings().enabled = isEnabled;
             $('#placeholder_settings_panel').toggle(isEnabled);
             script.saveSettingsDebounced();
-
             if (isEnabled) {
                 PlaceholderModule.init();
             } else {
