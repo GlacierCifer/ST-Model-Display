@@ -3,7 +3,7 @@ import { extension_settings } from '../../../extensions.js';
 
 // ===================================================================
 //
-//  小杂物集 (Misc Utilities) v1.0.2-modified
+//  小杂物集 (Misc Utilities) v1.0.3
 //  - 模块1: 模型名称显示 (Model Display)
 //  - 模块2: 世界书输入框提示 (World Book Placeholder)
 //
@@ -13,20 +13,20 @@ import { extension_settings } from '../../../extensions.js';
 
 // ###################################################################
 //
-//  模块 1: 模型名称显示 (Model Display) - [已简化]
+//  模块 1: 模型名称显示 (Model Display)
 //
 // ###################################################################
 const ModelDisplayModule = {
     // 1.0 模块内部状态和常量
     // ---------------------------------------------------------------
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.0.2-modified',
+    CURRENT_SCRIPT_VERSION: '1.0.3',
     SCRIPT_RAW_URL: 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/script.js',
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
 
-    // 1.1 默认设置 (已简化)
+    // 1.1 默认设置
     // ---------------------------------------------------------------
     defaultSettings: Object.freeze({
         enabled: true,
@@ -554,8 +554,7 @@ const SloganInjectionModule = {
     initialized: false,
     PROMPT_TEXT: [
         '请在每次回答末尾额外输出一个隐藏的HTML元素，格式为 `<div hidden class="slogan-container">✦❋内容</div>`。',
-        '元素内仅包含角色当下的精神标语 / 心声，散文式，最长 20 个汉字。',
-        '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，冷静、含蓄，不煽情不过度解释。',
+        '元素内仅包含角色当下的精神标语 / 心声，最长 15 个汉字。',
         '标语在隐藏元素之外不要重复，也不要额外解释。'
     ].join('\n'),
     
