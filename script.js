@@ -274,8 +274,7 @@ renderSettingsHtml() {
 //  模块 2: 输入框美化模块 (Placeholder Beautifier) - V2
 //
 // ###################################################################
-
-const PlaceholderModule = {
+const PlaceholderModule = {
     name: 'worldbook_placeholder',
     iframeWindow: null,
     placeholderObserver: null,
@@ -285,7 +284,9 @@ const PlaceholderModule = {
         customPlaceholder: '',
         placeholderSource: 'custom',
     }),
-    autoSlogan: '',
+    // 修改：将单一标语改为按角色ID存储的缓存对象
+    autoSloganCache: {},
+    currentCharacterId: null,
 
     init() {
         if (!this.getSettings().enabled) {
@@ -303,98 +304,39 @@ const PlaceholderModule = {
         });
     },
 
-    getSettings() {
-        if (!extension_settings[this.name]) {
-            extension_settings[this.name] = { ...this.defaultSettings };
-        }
-        const settings = extension_settings[this.name];
-        if (!['custom', 'auto', 'worldbook'].includes(settings.placeholderSource)) {
-            settings.placeholderSource = this.defaultSettings.placeholderSource;
-        }
-        if (settings.customPlaceholder === undefined) {
-            settings.customPlaceholder = this.defaultSettings.customPlaceholder;
-        }
-        return settings;
+    // 修改：获取当前角色ID
+    getCurrentCharacterId() {
+        // 尝试从不同位置获取角色ID
+        if (window.characterId) return window.characterId;
+        if (window.chat && window.chat.length > 0 && window.chat[0].characterId) return window.chat[0].characterId;
+        if (this.iframeWindow && this.iframeWindow.characterId) return this.iframeWindow.characterId;
+        return 'unknown';
     },
 
-    renderSettingsHtml() {
-        const settings = this.getSettings();
-        return `
-            <div id="placeholder_options_wrapper">
-                <hr>
-                <h3 class="sub-header">输入框文字替换</h3>
-                <div class="form-group">
-                    <p class="sub-label">选择提示来源；自定义项留空时会退回到优先级序列中的下一项。</p>
-                    <div class="form-group placeholder-toggle-group">
-                        <label class="checkbox_label">
-                            <input type="checkbox" class="placeholder_source_toggle" data-source="custom" ${settings.placeholderSource === 'custom' ? 'checked' : ''}>
-                            <span>自定义全局提示</span>
-                        </label>
-                        <label class="checkbox_label">
-                            <input type="checkbox" class="placeholder_source_toggle" data-source="auto" ${settings.placeholderSource === 'auto' ? 'checked' : ''}>
-                            <span>自主回复摘录</span>
-                        </label>
-                        <label class="checkbox_label">
-                            <input type="checkbox" class="placeholder_source_toggle" data-source="worldbook" ${settings.placeholderSource === 'worldbook' ? 'checked' : ''}>
-                            <span>世界书提取</span>
-                        </label>
-                    </div>
-                    <div style="display: flex; gap: 10px;">
-                       <input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${settings.customPlaceholder}">
-                       <button id="custom_placeholder_apply" class="menu_button">应用</button>
-                    </div>
-                </div>
-            </div>`;
-    },
-
-    bindSettingsEvents() {
-        $(document).on('click', '#custom_placeholder_apply', () => {
-            const newText = $('#custom_placeholder_input').val();
-            this.getSettings().customPlaceholder = newText;
-            script.saveSettingsDebounced();
-            this.applyLogic();
-            alert('输入框提示已更新！');
-        });
-
-        $(document).on('change', '.placeholder_source_toggle', (event) => {
-            const selected = $(event.currentTarget).data('source');
-            if (!['custom', 'auto', 'worldbook'].includes(selected)) return;
-
-            const settings = this.getSettings();
-            if (settings.placeholderSource !== selected) {
-                settings.placeholderSource = selected;
-                script.saveSettingsDebounced();
-                this.syncSourceToggles();
-                this.applyLogic();
-                return;
-            }
-
-            this.syncSourceToggles();
-        });
-    },
-
-    syncSourceToggles() {
-        const mode = this.getSettings().placeholderSource;
-        $('.placeholder_source_toggle').each(function () {
-            $(this).prop('checked', $(this).data('source') === mode);
-        });
-    },
-
-    resolveFallbackPlaceholder(textarea) {
-        return textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
-    },
-
+    // 修改：设置标语时关联到当前角色
     setAutoSlogan(text) {
         if (!text) return;
         const slogan = text.trim();
         if (!slogan) return;
-        console.log('[Placeholder] 更新标语缓存:', slogan);
-        this.autoSlogan = slogan;
+        
+        const characterId = this.getCurrentCharacterId();
+        console.log('[Placeholder] 更新角色', characterId, '的标语缓存:', slogan);
+        this.autoSloganCache[characterId] = slogan;
+        this.currentCharacterId = characterId;
+        
         const settings = this.getSettings();
         if (!settings.enabled) return;
         if (settings.placeholderSource === 'auto') {
             this.applyLogic();
         }
+    },
+
+    // 修改：获取当前角色的标语
+    getCurrentAutoSlogan() {
+        const characterId = this.getCurrentCharacterId();
+        const slogan = this.autoSloganCache[characterId];
+        console.log('[Placeholder] 获取角色', characterId, '的标语:', slogan || '(空)');
+        return slogan || '';
     },
 
     async applyLogic() {
@@ -410,7 +352,7 @@ const PlaceholderModule = {
 
         this.stopPlaceholderObserver();
 
-        console.log('[Placeholder] 模式:', mode, '自定义:', custom || '(空)', '标语缓存:', this.autoSlogan || '(空)');
+        console.log('[Placeholder] 模式:', mode, '自定义:', custom || '(空)', '当前角色:', this.getCurrentCharacterId());
 
         if (mode === 'custom') {
             if (!custom) {
@@ -425,13 +367,14 @@ const PlaceholderModule = {
         }
 
         if (mode === 'auto') {
-            const slogan = this.autoSlogan.trim();
+            // 修改：使用当前角色的标语
+            const slogan = this.getCurrentAutoSlogan();
             if (slogan) {
-                console.log('[Placeholder] 自动摘录成功，使用标语:', slogan);
+                console.log('[Placeholder] 使用当前角色标语:', slogan);
                 textarea.placeholder = slogan;
                 return;
             }
-            console.warn('[Placeholder] 未捕获到自动摘录，尝试世界书…');
+            console.warn('[Placeholder] 当前角色无标语缓存，尝试世界书…');
             const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
             if (world && world !== defaultText) {
                 console.log('[Placeholder] 自动模式降级为世界书:', world);
@@ -456,38 +399,13 @@ const PlaceholderModule = {
         }
     },
 
-    startPlaceholderObserver() {
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        const settings = this.getSettings();
-        const expected = settings.customPlaceholder.trim();
-
-        if (!textarea || settings.placeholderSource !== 'custom' || !expected) return;
-
-        this.stopPlaceholderObserver();
-
-        this.placeholderObserver = new MutationObserver((mutationsList) => {
-            for (const mutation of mutationsList) {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'placeholder' && textarea.placeholder !== expected) {
-                    console.log('[Placeholder] 检测到外部placeholder修改，重新应用自定义文本');
-                    this.stopPlaceholderObserver();
-                    textarea.placeholder = expected;
-                    this.startPlaceholderObserver();
-                    break;
-                }
-            }
-        });
-
-        this.placeholderObserver.observe(textarea, {
-            attributes: true,
-            attributeFilter: ['placeholder'],
-        });
-    },
-
-    stopPlaceholderObserver() {
-        if (this.placeholderObserver) {
-            this.placeholderObserver.disconnect();
-            this.placeholderObserver = null;
-        }
+    async onCharacterSwitch() {
+        const newCharacterId = this.getCurrentCharacterId();
+        console.log('%c[模块-输入框] 角色切换，新角色ID:', 'color: cyan;', newCharacterId, '缓存状态:', this.autoSloganCache[newCharacterId] ? '有缓存' : '无缓存');
+        
+        // 更新当前角色ID
+        this.currentCharacterId = newCharacterId;
+        await this.applyLogic();
     },
 
     async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
