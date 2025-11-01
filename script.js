@@ -274,21 +274,20 @@ renderSettingsHtml() {
 //  模块 2: 输入框美化模块 (Placeholder Beautifier) - V2
 //
 // ###################################################################
-
 const PlaceholderModule = {
-    name: 'worldbook_placeholder',
+    // 2.0 模块内部状态和常量
+    name: 'worldbook_placeholder', // 保持旧名称以兼容已有设置
     iframeWindow: null,
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
 
+    // 2.1 默认设置 (新增自定义占位符)
     defaultSettings: Object.freeze({
         enabled: true,
-        customPlaceholder: '',
-        placeholderSource: 'custom', // 'custom' | 'auto' | 'worldbook'
+        customPlaceholder: '', // 用于存储用户自定义的全局占位符
     }),
 
-    autoSlogan: '',
-
+    // 2.2 模块初始化入口
     init() {
         if (!this.getSettings().enabled) {
             console.log('[模块-输入框] 已禁用，跳过初始化。');
@@ -307,16 +306,15 @@ const PlaceholderModule = {
         });
     },
 
+    // 2.3 设置与界面 (完全重写)
     getSettings() {
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
         }
-        const settings = extension_settings[this.name];
-        if (settings.customPlaceholder === undefined) settings.customPlaceholder = this.defaultSettings.customPlaceholder;
-        if (!['custom', 'auto', 'worldbook'].includes(settings.placeholderSource)) {
-            settings.placeholderSource = this.defaultSettings.placeholderSource;
+        if (extension_settings[this.name].customPlaceholder === undefined) {
+            extension_settings[this.name].customPlaceholder = this.defaultSettings.customPlaceholder;
         }
-        return settings;
+        return extension_settings[this.name];
     },
 
     renderSettingsHtml() {
@@ -326,21 +324,7 @@ const PlaceholderModule = {
                 <hr>
                 <h3 class="sub-header">输入框文字替换</h3>
                 <div class="form-group">
-                    <p class="sub-label">选择提示来源；自定义项留空时会退回到优先级序列中的下一项。</p>
-                    <div class="form-group placeholder-toggle-group">
-                        <label class="checkbox_label">
-                            <input type="checkbox" class="placeholder_source_toggle" data-source="custom" ${settings.placeholderSource === 'custom' ? 'checked' : ''}>
-                            <span>自定义全局提示</span>
-                        </label>
-                        <label class="checkbox_label">
-                            <input type="checkbox" class="placeholder_source_toggle" data-source="auto" ${settings.placeholderSource === 'auto' ? 'checked' : ''}>
-                            <span>自主回复摘录</span>
-                        </label>
-                        <label class="checkbox_label">
-                            <input type="checkbox" class="placeholder_source_toggle" data-source="worldbook" ${settings.placeholderSource === 'worldbook' ? 'checked' : ''}>
-                            <span>世界书提取</span>
-                        </label>
-                    </div>
+                    <p class="sub-label">在此处输入全局替换文本。如果留空并应用，将恢复为读取世界书“输入框”条目或默认提示。</p>
                     <div style="display: flex; gap: 10px;">
                        <input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${settings.customPlaceholder}">
                        <button id="custom_placeholder_apply" class="menu_button">应用</button>
@@ -357,146 +341,74 @@ const PlaceholderModule = {
             this.applyLogic();
             alert('输入框提示已更新！');
         });
+    },
 
-        $(document).on('change', '.placeholder_source_toggle', (event) => {
-            const selected = $(event.currentTarget).data('source');
-            if (!['custom', 'auto', 'worldbook'].includes(selected)) return;
+    // 2.4 核心逻辑 (完全重写)
+    async applyLogic() {
+        if (!this.getSettings().enabled) return;
 
-            const settings = this.getSettings();
-            if (settings.placeholderSource !== selected) {
-                settings.placeholderSource = selected;
-                script.saveSettingsDebounced();
-                this.syncSourceToggles();
-                this.applyLogic();
-                return;
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (!textarea) return;
+
+        if (this.placeholderObserver) this.placeholderObserver.disconnect();
+
+        const customText = this.getSettings().customPlaceholder;
+
+        if (customText && customText.trim() !== '') {
+            textarea.placeholder = customText;
+            console.log(`[模块-输入框] 已应用自定义全局提示: "${customText}"`);
+        } else {
+            await this.applyWorldBookLogic(textarea);
+        }
+
+        this.startPlaceholderObserver();
+    },
+
+    async applyWorldBookLogic(textarea) {
+        const defaultPlaceholder = textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
+        let finalPlaceholder = defaultPlaceholder;
+
+        try {
+            if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
+                const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
+                if (lorebookName) {
+                    const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
+                    if (Array.isArray(activeEntries)) {
+                        const targetEntry = activeEntries.find(entry => entry.comment === "输入框");
+                        if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
+                            finalPlaceholder = targetEntry.content;
+                        }
+                    }
+                }
             }
+        } catch (error) {
+            console.error('[模块-输入框] 读取世界书时出错:', error);
+        }
 
-            // 阻止取消当前已选模式，保持单选状态
-            this.syncSourceToggles();
+        textarea.placeholder = finalPlaceholder;
+        console.log(`[模块-输入框] 已应用世界书/默认提示: "${finalPlaceholder}"`);
+    },
+
+    async onCharacterSwitch() {
+        console.log('%c[模块-输入框] 角色切换，重新应用逻辑...', 'color: cyan;');
+        await this.applyLogic();
+    },
+
+    startPlaceholderObserver() {
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (!textarea || !this.getSettings().enabled) return;
+
+        this.placeholderObserver = new MutationObserver((mutationsList) => {
+            const currentPlaceholder = textarea.placeholder;
+            const customText = this.getSettings().customPlaceholder;
+            const isCustomMode = customText && customText.trim() !== '';
+
+            if (isCustomMode && currentPlaceholder !== customText) {
+                this.applyLogic();
+            }
         });
+        this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
     },
-
-    syncSourceToggles() {
-        const mode = this.getSettings().placeholderSource;
-        $('.placeholder_source_toggle').each(function () {
-            $(this).prop('checked', $(this).data('source') === mode);
-        });
-    },
-
-   async applyLogic() {
-       if (!this.getSettings().enabled) return;
-
-       const textarea = document.getElementById(this.TEXTAREA_ID);
-       if (!textarea) return;
-
-       if (this.placeholderObserver) this.placeholderObserver.disconnect();
-
-       const settings = this.getSettings();
-       const mode = settings.placeholderSource;
-       const customText = settings.customPlaceholder.trim();
-
-       let nextPlaceholder;
-
-       if (mode === 'custom') {
-           if (customText) {
-               nextPlaceholder = customText;
-           } else if (this.autoSlogan) {
-               nextPlaceholder = this.autoSlogan;
-           } else {
-               nextPlaceholder = await this.applyWorldBookLogic(textarea);
-               if (!nextPlaceholder) nextPlaceholder = this.resolveFallbackPlaceholder(textarea);
-           }
-       } else if (mode === 'auto') {
-           if (this.autoSlogan) {
-               nextPlaceholder = this.autoSlogan;
-           } else {
-               nextPlaceholder = await this.applyWorldBookLogic(textarea);
-               if (!nextPlaceholder) nextPlaceholder = this.resolveFallbackPlaceholder(textarea);
-           }
-       } else {
-           nextPlaceholder = await this.applyWorldBookLogic(textarea);
-           if (!nextPlaceholder) nextPlaceholder = this.resolveFallbackPlaceholder(textarea);
-       }
-
-       textarea.placeholder = nextPlaceholder;
-
-       this.startPlaceholderObserver();
-   },
-
-    resolveFallbackPlaceholder(textarea) {
-        return textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
-    },
-
-  setAutoSlogan(text) {
-      if (!text) return;
-      this.autoSlogan = text;
-      const settings = this.getSettings();
-      if (!settings.enabled) return;
-
-      const needsUpdate =
-          settings.placeholderSource === 'auto' ||
-          (settings.placeholderSource === 'custom' && !settings.customPlaceholder.trim());
-
-      if (needsUpdate) {
-          this.applyLogic();
-      }
-  },
-
-   async applyWorldBookLogic(textarea) {
-       let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
-
-       try {
-           if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
-               const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
-               if (lorebookName) {
-                   const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
-                   if (Array.isArray(activeEntries)) {
-                       const targetEntry = activeEntries.find(entry => entry.comment === '输入框');
-                       if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
-                           finalPlaceholder = targetEntry.content;
-                       }
-                   }
-               }
-           }
-       } catch (error) {
-           console.error('[模块-输入框] 读取世界书时出错:', error);
-       }
-
-       textarea.placeholder = finalPlaceholder;
-       console.log(`[模块-输入框] 已应用世界书/默认提示: "${finalPlaceholder}"`);
-       return finalPlaceholder;
-   }
-
-async onCharacterSwitch() {
-       console.log('%c[模块-输入框] 角色切换，重新应用逻辑...', 'color: cyan;');
-       await this.applyLogic();
-   },
-
-   startPlaceholderObserver() {
-       const textarea = document.getElementById(this.TEXTAREA_ID);
-       if (!textarea || !this.getSettings().enabled) return;
-
-       this.placeholderObserver = new MutationObserver(async () => {
-           const settings = this.getSettings();
-           const mode = settings.placeholderSource;
-           const current = textarea.placeholder;
-           let expected;
-
-           if (mode === 'custom') {
-               expected = settings.customPlaceholder.trim() || this.autoSlogan || await this.applyWorldBookLogic(textarea) || this.resolveFallbackPlaceholder(textarea);
-           } else if (mode === 'auto') {
-               expected = this.autoSlogan || await this.applyWorldBookLogic(textarea) || this.resolveFallbackPlaceholder(textarea);
-           } else {
-               expected = await this.applyWorldBookLogic(textarea) || this.resolveFallbackPlaceholder(textarea);
-           }
-
-           if (current !== expected) {
-               textarea.placeholder = expected;
-           }
-       });
-
-       this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
-   }
 
     waitForIframe() {
         return new Promise(resolve => {
@@ -510,67 +422,6 @@ async onCharacterSwitch() {
             }, 100);
         });
     }
-};
-
-// ###################################################################
-//
-//  提示词注入
-//
-// ###################################################################
-
-const SloganInjectionModule = {
-   initialized: false,
-   PROMPT_TEXT: [
-       '请在每次回答末尾额外输出一个 HTML 注释，格式为 `<!-- ✦❋内容 -->`。',
-       '注释内仅包含角色当下的精神标语 / 心声，散文式，最长 20 个汉字。',
-       '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，冷静、含蓄，不煽情不过度解释。',
-       '标语在注释之外不要重复，也不要额外解释。'
-   ].join('\n'),
-   TAG_REGEX: /<!--\s*✦❋([\s\S]*?)-->/,
-
-    init() {
-        if (this.initialized || !script.eventSource || !script.event_types) return;
-        script.eventSource.on(script.event_types.CHAT_COMPLETION_PROMPT_READY, this.onPromptReady.bind(this));
-        script.eventSource.on(script.event_types.CHARACTER_MESSAGE_RENDERED, this.onMessageRendered.bind(this));
-        this.initialized = true;
-    },
-
-    onPromptReady(eventData = {}) {
-        if (eventData.dryRun === true || !Array.isArray(eventData.chat)) return;
-        if (!PlaceholderModule.getSettings().enabled) return;
-        if (PlaceholderModule.getSettings().placeholderSource !== 'auto') return;
-
-        eventData.chat.push({ role: 'system', content: this.PROMPT_TEXT });
-    },
-
-    onMessageRendered(chatId) {
-        if (!Array.isArray(window.chat)) return;
-        const message = window.chat[chatId];
-        if (!message || typeof message.mes !== 'string') return;
-
-   const match = message.mes.match(this.TAG_REGEX);
-   if (!match) return;
-
-   const raw = match[1].trim();
-   const slogan = raw.startsWith('✦❋') ? raw.slice(2).trim() : raw;
-
-   message.mes = message.mes.replace(this.TAG_REGEX, '').trim();
-   
-        if (Array.isArray(message.swipes) && typeof message.swipe_id === 'number') {
-            const activeSwipe = message.swipes[message.swipe_id];
-            if (typeof activeSwipe === 'string') {
-                message.swipes[message.swipe_id] = activeSwipe.replace(this.TAG_REGEX, '').trim();
-            }
-        }
-
-        if (typeof script.saveChatDebounced === 'function') {
-            script.saveChatDebounced();
-        } else if (typeof window.saveChat === 'function') {
-            window.saveChat();
-        }
-
-        PlaceholderModule.setAutoSlogan(slogan);
-    },
 };
 
 // ###################################################################
@@ -664,7 +515,6 @@ function initializeCombinedExtension() {
         // 4. 分别调用每个模块的初始化函数
         ModelDisplayModule.init();
         PlaceholderModule.init();
-        SloganInjectionModule.init();
 
         console.log('[小美化集] 所有模块均已加载。');
 
@@ -679,4 +529,4 @@ const settingsCheckInterval = setInterval(() => {
         clearInterval(settingsCheckInterval);
         initializeCombinedExtension();
     }
-}, 500);
+}, 500);
