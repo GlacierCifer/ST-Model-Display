@@ -274,6 +274,7 @@ renderSettingsHtml() {
 //  模块 2: 输入框美化模块 (Placeholder Beautifier) - V2
 //
 // ###################################################################
+
 const PlaceholderModule = {
     name: 'worldbook_placeholder',
     iframeWindow: null,
@@ -283,7 +284,7 @@ const PlaceholderModule = {
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
-        placeholderSource: 'custom', // 'custom' | 'worldbook' | 'auto'
+        placeholderSource: 'custom', // 'custom' | 'auto' | 'worldbook'
     }),
 
     autoSlogan: '',
@@ -312,7 +313,7 @@ const PlaceholderModule = {
         }
         const settings = extension_settings[this.name];
         if (settings.customPlaceholder === undefined) settings.customPlaceholder = this.defaultSettings.customPlaceholder;
-        if (!['custom', 'worldbook', 'auto'].includes(settings.placeholderSource)) {
+        if (!['custom', 'auto', 'worldbook'].includes(settings.placeholderSource)) {
             settings.placeholderSource = this.defaultSettings.placeholderSource;
         }
         return settings;
@@ -325,19 +326,19 @@ const PlaceholderModule = {
                 <hr>
                 <h3 class="sub-header">输入框文字替换</h3>
                 <div class="form-group">
-                    <p class="sub-label">选择使用的提示来源；自定义项留空则回退到其他模式默认提示。</p>
-                    <div class="form-group">
+                    <p class="sub-label">选择提示来源；自定义项留空时会退回到优先级序列中的下一项。</p>
+                    <div class="form-group placeholder-toggle-group">
                         <label class="checkbox_label">
-                            <input type="radio" name="placeholder_source" value="custom" ${settings.placeholderSource === 'custom' ? 'checked' : ''}>
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="custom" ${settings.placeholderSource === 'custom' ? 'checked' : ''}>
                             <span>自定义全局提示</span>
                         </label>
                         <label class="checkbox_label">
-                            <input type="radio" name="placeholder_source" value="worldbook" ${settings.placeholderSource === 'worldbook' ? 'checked' : ''}>
-                            <span>世界书提取</span>
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="auto" ${settings.placeholderSource === 'auto' ? 'checked' : ''}>
+                            <span>自主回复摘录</span>
                         </label>
                         <label class="checkbox_label">
-                            <input type="radio" name="placeholder_source" value="auto" ${settings.placeholderSource === 'auto' ? 'checked' : ''}>
-                            <span>自主回复摘录</span>
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="worldbook" ${settings.placeholderSource === 'worldbook' ? 'checked' : ''}>
+                            <span>世界书提取</span>
                         </label>
                     </div>
                     <div style="display: flex; gap: 10px;">
@@ -357,11 +358,28 @@ const PlaceholderModule = {
             alert('输入框提示已更新！');
         });
 
-        $(document).on('change', 'input[name="placeholder_source"]', (event) => {
-            const value = $(event.currentTarget).val();
-            this.getSettings().placeholderSource = value;
-            script.saveSettingsDebounced();
-            this.applyLogic();
+        $(document).on('change', '.placeholder_source_toggle', (event) => {
+            const selected = $(event.currentTarget).data('source');
+            if (!['custom', 'auto', 'worldbook'].includes(selected)) return;
+
+            const settings = this.getSettings();
+            if (settings.placeholderSource !== selected) {
+                settings.placeholderSource = selected;
+                script.saveSettingsDebounced();
+                this.syncSourceToggles();
+                this.applyLogic();
+                return;
+            }
+
+            // 阻止取消当前已选模式，保持单选状态
+            this.syncSourceToggles();
+        });
+    },
+
+    syncSourceToggles() {
+        const mode = this.getSettings().placeholderSource;
+        $('.placeholder_source_toggle').each(function () {
+            $(this).prop('checked', $(this).data('source') === mode);
         });
     },
 
@@ -378,18 +396,22 @@ const PlaceholderModule = {
         const customText = settings.customPlaceholder.trim();
 
         if (mode === 'custom') {
-            textarea.placeholder = customText || textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
-        } else if (mode === 'worldbook') {
-            await this.applyWorldBookLogic(textarea);
-        } else {
+            textarea.placeholder = customText || this.resolveFallbackPlaceholder(textarea);
+        } else if (mode === 'auto') {
             if (this.autoSlogan) {
                 textarea.placeholder = this.autoSlogan;
             } else {
-                await this.applyWorldBookLogic(textarea);
+                textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
             }
+        } else {
+            await this.applyWorldBookLogic(textarea);
         }
 
         this.startPlaceholderObserver();
+    },
+
+    resolveFallbackPlaceholder(textarea) {
+        return textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
     },
 
     setAutoSlogan(text) {
@@ -401,8 +423,7 @@ const PlaceholderModule = {
     },
 
     async applyWorldBookLogic(textarea) {
-        const defaultPlaceholder = textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
-        let finalPlaceholder = defaultPlaceholder;
+        let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
 
         try {
             if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
@@ -434,22 +455,20 @@ const PlaceholderModule = {
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea || !this.getSettings().enabled) return;
 
-        const settings = this.getSettings();
-        const mode = settings.placeholderSource;
-        const expected = mode === 'custom'
-            ? settings.customPlaceholder.trim()
-            : mode === 'auto'
-                ? this.autoSlogan
-                : textarea.placeholder;
-
         this.placeholderObserver = new MutationObserver(() => {
-            const currentPlaceholder = textarea.placeholder;
-            if (mode === 'custom' && expected !== '' && currentPlaceholder !== expected) {
-                this.applyLogic();
-            } else if (mode === 'auto' && this.autoSlogan && currentPlaceholder !== this.autoSlogan) {
+            const settings = this.getSettings();
+            const mode = settings.placeholderSource;
+            const target = mode === 'custom'
+                ? settings.customPlaceholder.trim() || this.resolveFallbackPlaceholder(textarea)
+                : mode === 'auto'
+                    ? (this.autoSlogan || this.resolveFallbackPlaceholder(textarea))
+                    : textarea.placeholder;
+
+            if (textarea.placeholder !== target) {
                 this.applyLogic();
             }
         });
+
         this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
     },
 
@@ -479,10 +498,10 @@ const PlaceholderModule = {
 
 const SloganInjectionModule = {
     PROMPT_TEXT: [
-        '请在每次回答的末尾额外追加一个 HTML 注释标签，格式为 。',
-        '句子为角色当前的精神标语 / 金句 / 心声，不超过20字。',
-        '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，散文化、冷静、含蓄，不煽情不解释。',
-        '务必保证注释标签内的句子是唯一输出，不要再复制到正文。'
+        '请在每次回答末尾额外输出一个 HTML 注释，格式为 。',
+        '注释内仅包含角色当下的精神标语 / 心声，散文式，≤20字。',
+        '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，冷静、含蓄，不煽情、不过度解释。',
+        '标语在注释之外不要重复。'
     ].join('\n'),
     TAG_REGEX: //,
     initialized: false,
@@ -496,6 +515,9 @@ const SloganInjectionModule = {
 
     onPromptReady(eventData = {}) {
         if (eventData.dryRun === true || !Array.isArray(eventData.chat)) return;
+        if (!PlaceholderModule.getSettings().enabled) return;
+        if (PlaceholderModule.getSettings().placeholderSource !== 'auto') return;
+
         eventData.chat.push({ role: 'system', content: this.PROMPT_TEXT });
     },
 
@@ -505,7 +527,10 @@ const SloganInjectionModule = {
         if (!message || typeof message.mes !== 'string') return;
 
         const match = this.TAG_REGEX.exec(message.mes);
-        if (!match) return;
+        if (!match) {
+            // 没有新标语时，保留旧内容
+            return;
+        }
 
         const raw = match[1].trim();
         const slogan = raw.startsWith('✦❋') ? raw.slice(2).trim() : raw;
