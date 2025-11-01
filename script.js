@@ -38,6 +38,10 @@ const ModelDisplayModule = {
     // 1.2 模块初始化入口
     // ---------------------------------------------------------------
     init() {
+      
+       ModelDisplayModule.init();
+       PlaceholderModule.init();
+       SloganInjectionModule.init();
 
         if (this.getSettings().enabled) {
             this.startObservers();
@@ -486,10 +490,6 @@ const PlaceholderModule = {
     }
 };
 
-        ModelDisplayModule.init();
-        PlaceholderModule.init();
-        SloganInjectionModule.init();
-
 // ###################################################################
 //
 //  提示词注入
@@ -497,14 +497,13 @@ const PlaceholderModule = {
 // ###################################################################
 
 const SloganInjectionModule = {
-    PROMPT_TEXT: [
-        '请在每次回答末尾额外输出一个 HTML 注释，格式为 。',
-        '注释内仅包含角色当下的精神标语 / 心声，散文式，≤20字。',
-        '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，冷静、含蓄，不煽情、不过度解释。',
-        '标语在注释之外不要重复。'
-    ].join('\n'),
-    TAG_REGEX: //,
-    initialized: false,
+PROMPT_TEXT: [
+       '请在每次回答末尾额外输出一个 HTML 注释，格式为 ``。',
+       '注释内仅包含角色当下的精神标语 / 心声，散文式，最长 20 个汉字。',
+       '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，冷静、含蓄，不煽情不过度解释。',
+       '标语在注释之外不要重复，也不要额外解释。'
+   ].join('\n'),
+   TAG_REGEX: //,
 
     init() {
         if (this.initialized || !script.eventSource || !script.event_types) return;
@@ -526,16 +525,14 @@ const SloganInjectionModule = {
         const message = window.chat[chatId];
         if (!message || typeof message.mes !== 'string') return;
 
-        const match = this.TAG_REGEX.exec(message.mes);
-        if (!match) {
-            // 没有新标语时，保留旧内容
-            return;
-        }
+const match = message.mes.match(this.TAG_REGEX);
+   if (!match) return;
 
-        const raw = match[1].trim();
-        const slogan = raw.startsWith('✦❋') ? raw.slice(2).trim() : raw;
+   const raw = match[1].trim();
+   const slogan = raw.startsWith('✦❋') ? raw.slice(2).trim() : raw;
 
-        message.mes = message.mes.replace(this.TAG_REGEX, '').trim();
+   message.mes = message.mes.replace(this.TAG_REGEX, '').trim();
+   
         if (Array.isArray(message.swipes) && typeof message.swipe_id === 'number') {
             const activeSwipe = message.swipes[message.swipe_id];
             if (typeof activeSwipe === 'string') {
