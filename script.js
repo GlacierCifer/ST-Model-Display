@@ -274,47 +274,47 @@ renderSettingsHtml() {
 //  模块 2: 输入框美化模块 (Placeholder Beautifier) - V2
 //
 // ###################################################################
+
 const PlaceholderModule = {
-    // 2.0 模块内部状态和常量
-    name: 'worldbook_placeholder', // 保持旧名称以兼容已有设置
+    name: 'worldbook_placeholder',
     iframeWindow: null,
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
-
-    // 2.1 默认设置 (新增自定义占位符)
     defaultSettings: Object.freeze({
         enabled: true,
-        customPlaceholder: '', // 用于存储用户自定义的全局占位符
+        customPlaceholder: '',
+        placeholderSource: 'custom',
     }),
+    autoSlogan: '',
 
-    // 2.2 模块初始化入口
     init() {
         if (!this.getSettings().enabled) {
             console.log('[模块-输入框] 已禁用，跳过初始化。');
             return;
         }
-
         this.waitForIframe().then(() => {
             if (script.eventSource && script.event_types) {
                 script.eventSource.on(script.event_types.CHAT_CHANGED, this.onCharacterSwitch.bind(this));
             } else {
                 console.error('[模块-输入框] 致命错误：无法访问 script.eventSource。');
             }
-            this.startPlaceholderObserver();
             this.applyLogic();
             console.log('[模块-输入框] 初始化成功。');
         });
     },
 
-    // 2.3 设置与界面 (完全重写)
     getSettings() {
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
         }
-        if (extension_settings[this.name].customPlaceholder === undefined) {
-            extension_settings[this.name].customPlaceholder = this.defaultSettings.customPlaceholder;
+        const settings = extension_settings[this.name];
+        if (!['custom', 'auto', 'worldbook'].includes(settings.placeholderSource)) {
+            settings.placeholderSource = this.defaultSettings.placeholderSource;
         }
-        return extension_settings[this.name];
+        if (settings.customPlaceholder === undefined) {
+            settings.customPlaceholder = this.defaultSettings.customPlaceholder;
+        }
+        return settings;
     },
 
     renderSettingsHtml() {
@@ -324,7 +324,21 @@ const PlaceholderModule = {
                 <hr>
                 <h3 class="sub-header">输入框文字替换</h3>
                 <div class="form-group">
-                    <p class="sub-label">在此处输入全局替换文本。如果留空并应用，将恢复为读取世界书“输入框”条目或默认提示。</p>
+                    <p class="sub-label">选择提示来源；自定义项留空时会退回到优先级序列中的下一项。</p>
+                    <div class="form-group placeholder-toggle-group">
+                        <label class="checkbox_label">
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="custom" ${settings.placeholderSource === 'custom' ? 'checked' : ''}>
+                            <span>自定义全局提示</span>
+                        </label>
+                        <label class="checkbox_label">
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="auto" ${settings.placeholderSource === 'auto' ? 'checked' : ''}>
+                            <span>自主回复摘录</span>
+                        </label>
+                        <label class="checkbox_label">
+                            <input type="checkbox" class="placeholder_source_toggle" data-source="worldbook" ${settings.placeholderSource === 'worldbook' ? 'checked' : ''}>
+                            <span>世界书提取</span>
+                        </label>
+                    </div>
                     <div style="display: flex; gap: 10px;">
                        <input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${settings.customPlaceholder}">
                        <button id="custom_placeholder_apply" class="menu_button">应用</button>
@@ -341,73 +355,179 @@ const PlaceholderModule = {
             this.applyLogic();
             alert('输入框提示已更新！');
         });
+
+        $(document).on('change', '.placeholder_source_toggle', (event) => {
+            const selected = $(event.currentTarget).data('source');
+            if (!['custom', 'auto', 'worldbook'].includes(selected)) return;
+
+            const settings = this.getSettings();
+            if (settings.placeholderSource !== selected) {
+                settings.placeholderSource = selected;
+                script.saveSettingsDebounced();
+                this.syncSourceToggles();
+                this.applyLogic();
+                return;
+            }
+
+            this.syncSourceToggles();
+        });
     },
 
-    // 2.4 核心逻辑 (完全重写)
+    syncSourceToggles() {
+        const mode = this.getSettings().placeholderSource;
+        $('.placeholder_source_toggle').each(function () {
+            $(this).prop('checked', $(this).data('source') === mode);
+        });
+    },
+
+    resolveFallbackPlaceholder(textarea) {
+        return textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
+    },
+
+    setAutoSlogan(text) {
+        if (!text) return;
+        const slogan = text.trim();
+        if (!slogan) return;
+        console.log('[Placeholder] 更新标语缓存:', slogan);
+        this.autoSlogan = slogan;
+        const settings = this.getSettings();
+        if (!settings.enabled) return;
+        if (settings.placeholderSource === 'auto') {
+            this.applyLogic();
+        }
+    },
+
     async applyLogic() {
         if (!this.getSettings().enabled) return;
 
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
 
-        if (this.placeholderObserver) this.placeholderObserver.disconnect();
+        const settings = this.getSettings();
+        const mode = settings.placeholderSource;
+        const custom = settings.customPlaceholder.trim();
+        const defaultText = this.resolveFallbackPlaceholder(textarea);
 
-        const customText = this.getSettings().customPlaceholder;
+        this.stopPlaceholderObserver();
 
-        if (customText && customText.trim() !== '') {
-            textarea.placeholder = customText;
-            console.log(`[模块-输入框] 已应用自定义全局提示: "${customText}"`);
-        } else {
-            await this.applyWorldBookLogic(textarea);
+        console.log('[Placeholder] 模式:', mode, '自定义:', custom || '(空)', '标语缓存:', this.autoSlogan || '(空)');
+
+        if (mode === 'custom') {
+            if (!custom) {
+                console.warn('[Placeholder] 自定义模式但未输入文本，保留原占位符:', defaultText);
+                textarea.placeholder = defaultText;
+                return;
+            }
+            console.log('[Placeholder] 应用自定义文本:', custom);
+            textarea.placeholder = custom;
+            this.startPlaceholderObserver();
+            return;
         }
 
-        this.startPlaceholderObserver();
+        if (mode === 'auto') {
+            const slogan = this.autoSlogan.trim();
+            if (slogan) {
+                console.log('[Placeholder] 自动摘录成功，使用标语:', slogan);
+                textarea.placeholder = slogan;
+                return;
+            }
+            console.warn('[Placeholder] 未捕获到自动摘录，尝试世界书…');
+            const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
+            if (world && world !== defaultText) {
+                console.log('[Placeholder] 自动模式降级为世界书:', world);
+                textarea.placeholder = world;
+            } else {
+                console.warn('[Placeholder] 自动模式无可用内容，回退原占位符:', defaultText);
+                textarea.placeholder = defaultText;
+            }
+            return;
+        }
+
+        if (mode === 'worldbook') {
+            console.log('[Placeholder] 世界书模式，尝试提取…');
+            const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
+            if (world && world !== defaultText) {
+                console.log('[Placeholder] 世界书替换成功:', world);
+                textarea.placeholder = world;
+            } else {
+                console.warn('[Placeholder] 世界书未命中，保留原占位符:', defaultText);
+                textarea.placeholder = defaultText;
+            }
+        }
     },
 
-    async applyWorldBookLogic(textarea) {
-        const defaultPlaceholder = textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
-        let finalPlaceholder = defaultPlaceholder;
+    startPlaceholderObserver() {
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        const settings = this.getSettings();
+        const expected = settings.customPlaceholder.trim();
+
+        if (!textarea || settings.placeholderSource !== 'custom' || !expected) return;
+
+        this.stopPlaceholderObserver();
+
+        this.placeholderObserver = new MutationObserver((mutationsList) => {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'placeholder' && textarea.placeholder !== expected) {
+                    console.log('[Placeholder] 检测到外部placeholder修改，重新应用自定义文本');
+                    this.stopPlaceholderObserver();
+                    textarea.placeholder = expected;
+                    this.startPlaceholderObserver();
+                    break;
+                }
+            }
+        });
+
+        this.placeholderObserver.observe(textarea, {
+            attributes: true,
+            attributeFilter: ['placeholder'],
+        });
+    },
+
+    stopPlaceholderObserver() {
+        if (this.placeholderObserver) {
+            this.placeholderObserver.disconnect();
+            this.placeholderObserver = null;
+        }
+    },
+
+    async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
+        let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
 
         try {
             if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
+                console.log('[Placeholder] 访问世界书接口成功。');
                 const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
+                console.log('[Placeholder] 当前世界书:', lorebookName || '(无)');
                 if (lorebookName) {
                     const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
+                    console.log('[Placeholder] 世界书条目数:', Array.isArray(activeEntries) ? activeEntries.length : '(不可用)');
                     if (Array.isArray(activeEntries)) {
-                        const targetEntry = activeEntries.find(entry => entry.comment === "输入框");
+                        const targetEntry = activeEntries.find(entry => entry.comment === '输入框');
                         if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
                             finalPlaceholder = targetEntry.content;
+                            console.log('[Placeholder] 命中世界书条目，内容:', finalPlaceholder);
+                        } else {
+                            console.warn('[Placeholder] 未找到 comment="输入框" 的条目。');
                         }
                     }
                 }
+            } else {
+                console.error('[Placeholder] 读取世界书接口不可用。');
             }
         } catch (error) {
             console.error('[模块-输入框] 读取世界书时出错:', error);
         }
 
-        textarea.placeholder = finalPlaceholder;
-        console.log(`[模块-输入框] 已应用世界书/默认提示: "${finalPlaceholder}"`);
+        if (setPlaceholder) {
+            textarea.placeholder = finalPlaceholder;
+            console.log('[Placeholder] 已设置占位符:', finalPlaceholder);
+        }
+        return finalPlaceholder;
     },
 
     async onCharacterSwitch() {
         console.log('%c[模块-输入框] 角色切换，重新应用逻辑...', 'color: cyan;');
         await this.applyLogic();
-    },
-
-    startPlaceholderObserver() {
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        if (!textarea || !this.getSettings().enabled) return;
-
-        this.placeholderObserver = new MutationObserver((mutationsList) => {
-            const currentPlaceholder = textarea.placeholder;
-            const customText = this.getSettings().customPlaceholder;
-            const isCustomMode = customText && customText.trim() !== '';
-
-            if (isCustomMode && currentPlaceholder !== customText) {
-                this.applyLogic();
-            }
-        });
-        this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
     },
 
     waitForIframe() {
@@ -421,6 +541,322 @@ const PlaceholderModule = {
                 }
             }, 100);
         });
+    },
+};
+
+// ###################################################################
+//
+//  提示词注入
+//
+// ###################################################################
+
+const SloganInjectionModule = {
+    initialized: false,
+    PROMPT_TEXT: [
+        '请在每次回答末尾额外输出一个隐藏的HTML元素，格式为 `<div hidden class="slogan-container">✦❋内容</div>`。',
+        '元素内仅包含角色当下的精神标语 / 心声，散文式，最长 20 个汉字。',
+        '语言风格参考鲁迅《故乡》、史铁生《我与地坛》、余华《活着》，冷静、含蓄，不煽情不过度解释。',
+        '标语在隐藏元素之外不要重复，也不要额外解释。'
+    ].join('\n'),
+    
+    // 控制台监听状态
+    consoleListener: {
+        isActive: false,
+        originalConsoleLog: null,
+        messagePattern: /Core\/all messages:\s*(\d+)\/(\d+)/,
+        timeoutId: null
+    },
+    
+    // DOM 监听状态
+    domObserver: null,
+    htmlDecodeElement: null,
+
+    // HTML 实体解码
+    decodeHtmlEntities(text = '') {
+        if (!this.htmlDecodeElement) {
+            this.htmlDecodeElement = document.createElement('textarea');
+        }
+        let previous;
+        let current = text;
+        do {
+            previous = current;
+            this.htmlDecodeElement.innerHTML = current;
+            current = this.htmlDecodeElement.value;
+        } while (current !== previous && current.includes('&'));
+        return current;
+    },
+
+    // 初始化模块
+    init() {
+        if (this.initialized || !script.eventSource || !script.event_types) return;
+        
+        // 注册事件监听
+        script.eventSource.on(script.event_types.CHAT_COMPLETION_PROMPT_READY, this.onPromptReady.bind(this));
+        script.eventSource.on(script.event_types.CHARACTER_MESSAGE_RENDERED, this.onMessageRendered.bind(this));
+        script.eventSource.on(script.event_types.MESSAGE_SWIPED, this.onMessageRendered.bind(this));
+        
+        // 启动控制台监听（主要方案）
+        this.setupConsoleListener();
+        
+        // 启动DOM监听（备用方案）
+        this.setupDOMMonitoring();
+        
+        this.initialized = true;
+        console.log('[Slogan] 模块初始化完成');
+    },
+
+    // 提示词注入
+    onPromptReady(eventData = {}) {
+        if (eventData.dryRun === true || !Array.isArray(eventData.chat)) return;
+        if (!PlaceholderModule.getSettings().enabled) return;
+        if (PlaceholderModule.getSettings().placeholderSource !== 'auto') return;
+        eventData.chat.push({ role: 'system', content: this.PROMPT_TEXT });
+    },
+
+    // 消息渲染事件 - 现在只记录，等待控制台信号
+    onMessageRendered(payload = {}) {
+        console.log('[Slogan] 收到渲染事件，等待控制台完成信号');
+        // 不立即处理，等待控制台的完成信号
+    },
+
+    // 设置控制台监听
+    setupConsoleListener() {
+        if (this.consoleListener.isActive) {
+            console.log('[Slogan] 控制台监听已激活');
+            return;
+        }
+        
+        console.log('[Slogan] 启动控制台日志监听');
+        
+        // 保存原始 console.log
+        this.consoleListener.originalConsoleLog = console.log;
+        
+        // 重写 console.log 来捕获特定消息
+        console.log = (...args) => {
+            // 先调用原始 console.log
+            this.consoleListener.originalConsoleLog.apply(console, args);
+            
+            // 检查是否包含目标消息
+            this.checkConsoleForCompletion(args);
+        };
+        
+        this.consoleListener.isActive = true;
+    },
+
+    // 检查控制台输出是否包含完成信号
+    checkConsoleForCompletion(args) {
+        try {
+            // 将参数合并为字符串
+            const logMessage = args.map(arg => 
+                typeof arg === 'string' ? arg : JSON.stringify(arg)
+            ).join(' ');
+            
+            // 检查是否匹配目标模式
+            const match = logMessage.match(this.consoleListener.messagePattern);
+            if (match) {
+                const current = parseInt(match[1]);
+                const total = parseInt(match[2]);
+                
+                console.log(`[Slogan] 检测到消息完成信号: ${current}/${total}`);
+                
+                // 当当前消息数等于总数时，说明所有消息都处理完了
+                if (current === total) {
+                    this.onStreamingComplete();
+                }
+            }
+        } catch (error) {
+            console.error('[Slogan] 检查控制台日志时出错:', error);
+        }
+    },
+
+    // 流式输出完成处理
+    onStreamingComplete() {
+        console.log('[Slogan] 确认流式输出完成，开始提取标语');
+        
+        // 清除之前的延迟检测（如果有）
+        if (this.consoleListener.timeoutId) {
+            clearTimeout(this.consoleListener.timeoutId);
+        }
+        
+        // 稍微延迟确保DOM完全更新
+        this.consoleListener.timeoutId = setTimeout(() => {
+            this.extractSloganAfterCompletion();
+        }, 300);
+    },
+
+    // 完成后提取标语
+    extractSloganAfterCompletion() {
+        console.log('[Slogan] 开始最终标语提取');
+        
+        let slogan = this.extractSloganFromLatestDOM();
+        
+        if (slogan) {
+            console.log('[Slogan] 成功提取标语:', slogan);
+            PlaceholderModule.setAutoSlogan(slogan);
+        } else {
+            console.warn('[Slogan] DOM中未找到标语，尝试备用方法');
+            // 备用：从消息对象中提取
+            this.tryBackupExtraction();
+        }
+        
+        this.consoleListener.timeoutId = null;
+    },
+
+    // 从DOM中直接查找最新的标语元素
+    extractSloganFromLatestDOM() {
+        try {
+            // 获取所有AI消息（非用户消息）
+            const aiMessages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
+            if (aiMessages.length === 0) {
+                console.log('[Slogan] 未找到AI消息');
+                return null;
+            }
+            
+            // 从最新的消息开始查找
+            for (let i = aiMessages.length - 1; i >= 0; i--) {
+                const message = aiMessages[i];
+                const sloganElement = message.querySelector('.mes_text div[hidden].slogan-container') || 
+                                     message.querySelector('.mes_text div[hidden]');
+                
+                if (sloganElement) {
+                    const slogan = sloganElement.textContent.trim().replace(/^✦❋/, '').trim();
+                    if (slogan) {
+                        console.log(`[Slogan] 从DOM消息#${i}提取标语:`, slogan);
+                        return slogan;
+                    }
+                }
+            }
+            
+            console.log('[Slogan] 在DOM中未找到标语元素');
+            return null;
+        } catch (error) {
+            console.error('[Slogan] DOM查询失败:', error);
+            return null;
+        }
+    },
+
+    // 从消息对象中提取标语
+    extractSloganFromMessage(message) {
+        if (!message) return null;
+        
+        // 从消息对象中查找 hidden 元素
+        const rawText = message.mes_raw || message.mes;
+        if (rawText) {
+            return this.extractSloganFromText(rawText);
+        }
+        
+        return null;
+    },
+
+    // 从文本中提取标语
+    extractSloganFromText(text) {
+        if (!text) return null;
+        
+        const decoded = this.decodeHtmlEntities(text);
+        
+        // 匹配 hidden 元素
+        const hiddenDivMatch = decoded.match(/<div\s+hidden[^>]*class\s*=\s*["']slogan-container["'][^>]*>(.*?)<\/div>/i);
+        if (hiddenDivMatch) {
+            const slogan = hiddenDivMatch[1].trim().replace(/^✦❋/, '').trim();
+            console.log('[Slogan] 从文本中提取标语:', slogan);
+            return slogan;
+        }
+        
+        // 备用：匹配任何包含 ✦❋ 的 hidden 元素
+        const anyHiddenMatch = decoded.match(/<div\s+hidden[^>]*>.*?✦❋(.*?)<\/div>/i);
+        if (anyHiddenMatch) {
+            const slogan = anyHiddenMatch[1].trim();
+            console.log('[Slogan] 从备用hidden元素提取标语:', slogan);
+            return slogan;
+        }
+        
+        return null;
+    },
+
+    // 备用提取方法
+    tryBackupExtraction() {
+        // 尝试从最新的消息对象中提取
+        if (window.chat && Array.isArray(window.chat)) {
+            for (let i = window.chat.length - 1; i >= 0; i--) {
+                const message = window.chat[i];
+                if (message && !message.is_user) {
+                    const slogan = this.extractSloganFromMessage(message);
+                    if (slogan) {
+                        console.log('[Slogan] 备用方法提取标语:', slogan);
+                        PlaceholderModule.setAutoSlogan(slogan);
+                        return;
+                    }
+                }
+            }
+        }
+        
+        console.warn('[Slogan] 所有提取方法都失败，维持上一个状态');
+    },
+
+    // 设置DOM监听作为备用方案
+    setupDOMMonitoring() {
+        const chatContainer = document.getElementById('chat');
+        if (!chatContainer) {
+            console.warn('[Slogan] 未找到聊天容器，延迟设置DOM监听');
+            setTimeout(() => this.setupDOMMonitoring(), 1000);
+            return;
+        }
+        
+        this.domObserver = new MutationObserver((mutations) => {
+            let shouldCheck = false;
+            
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === 1 && 
+                            node.classList && 
+                            node.classList.contains('mes') && 
+                            node.getAttribute('is_user') !== 'true') {
+                            shouldCheck = true;
+                        }
+                    });
+                }
+            });
+            
+            if (shouldCheck) {
+                console.log('[Slogan] DOM监听检测到新AI消息，但等待控制台信号');
+                // 这里不立即处理，主要依赖控制台信号
+            }
+        });
+        
+        this.domObserver.observe(chatContainer, {
+            childList: true,
+            subtree: true
+        });
+        
+        console.log('[Slogan] DOM监听已启动（备用方案）');
+    },
+
+    // 清理控制台监听
+    destroyConsoleListener() {
+        if (this.consoleListener.isActive && this.consoleListener.originalConsoleLog) {
+            console.log = this.consoleListener.originalConsoleLog;
+            this.consoleListener.isActive = false;
+            console.log('[Slogan] 控制台监听已清理');
+        }
+        
+        if (this.consoleListener.timeoutId) {
+            clearTimeout(this.consoleListener.timeoutId);
+            this.consoleListener.timeoutId = null;
+        }
+    },
+
+    // 完整的清理方法
+    destroy() {
+        this.destroyConsoleListener();
+        
+        if (this.domObserver) {
+            this.domObserver.disconnect();
+            this.domObserver = null;
+            console.log('[Slogan] DOM监听已清理');
+        }
+        
+        this.initialized = false;
     }
 };
 
@@ -515,6 +951,7 @@ function initializeCombinedExtension() {
         // 4. 分别调用每个模块的初始化函数
         ModelDisplayModule.init();
         PlaceholderModule.init();
+        SloganInjectionModule.init();
 
         console.log('[小美化集] 所有模块均已加载。');
 
@@ -529,4 +966,4 @@ const settingsCheckInterval = setInterval(() => {
         clearInterval(settingsCheckInterval);
         initializeCombinedExtension();
     }
-}, 500);
+}, 500);
