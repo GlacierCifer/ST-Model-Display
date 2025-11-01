@@ -284,6 +284,7 @@ renderSettingsHtml() {
         customPlaceholder: '',
         placeholderSource: 'custom',
     }),
+    // 角色标语缓存
     autoSloganCache: {},
     currentCharacterId: null,
 
@@ -298,6 +299,8 @@ renderSettingsHtml() {
             } else {
                 console.error('[模块-输入框] 致命错误：无法访问 script.eventSource。');
             }
+            // 初始化时获取当前角色ID
+            this.updateCurrentCharacterId();
             this.applyLogic();
             console.log('[模块-输入框] 初始化成功。');
         });
@@ -315,6 +318,167 @@ renderSettingsHtml() {
             settings.customPlaceholder = this.defaultSettings.customPlaceholder;
         }
         return settings;
+    },
+
+    // 新增：可靠的角色ID获取方法
+    updateCurrentCharacterId() {
+        // 方法1: 从当前活动角色获取
+        if (window.active_chat && window.active_chat.characterId) {
+            this.currentCharacterId = window.active_chat.characterId;
+            console.log('[Placeholder] 从active_chat获取角色ID:', this.currentCharacterId);
+            return;
+        }
+        
+        // 方法2: 从聊天记录获取
+        if (window.chat && window.chat.length > 0) {
+            for (let i = window.chat.length - 1; i >= 0; i--) {
+                if (window.chat[i].characterId) {
+                    this.currentCharacterId = window.chat[i].characterId;
+                    console.log('[Placeholder] 从chat记录获取角色ID:', this.currentCharacterId);
+                    return;
+                }
+            }
+        }
+        
+        // 方法3: 从全局变量获取
+        if (window.characterId) {
+            this.currentCharacterId = window.characterId;
+            console.log('[Placeholder] 从全局characterId获取角色ID:', this.currentCharacterId);
+            return;
+        }
+        
+        // 方法4: 从iframe获取
+        if (this.iframeWindow && this.iframeWindow.characterId) {
+            this.currentCharacterId = this.iframeWindow.characterId;
+            console.log('[Placeholder] 从iframe获取角色ID:', this.currentCharacterId);
+            return;
+        }
+        
+        // 兜底
+        this.currentCharacterId = 'unknown';
+        console.warn('[Placeholder] 无法获取角色ID，使用unknown');
+    },
+
+    // 修改：设置标语时使用当前角色ID
+    setAutoSlogan(text) {
+        if (!text) return;
+        const slogan = text.trim();
+        if (!slogan) return;
+        
+        // 确保有最新的角色ID
+        this.updateCurrentCharacterId();
+        
+        console.log('[Placeholder] 更新角色', this.currentCharacterId, '的标语缓存:', slogan);
+        this.autoSloganCache[this.currentCharacterId] = slogan;
+        
+        const settings = this.getSettings();
+        if (!settings.enabled) return;
+        if (settings.placeholderSource === 'auto') {
+            this.applyLogic();
+        }
+    },
+
+    // 修改：获取当前角色的标语，支持降级逻辑
+    getCurrentAutoSlogan() {
+        // 确保有最新的角色ID
+        this.updateCurrentCharacterId();
+        
+        const slogan = this.autoSloganCache[this.currentCharacterId];
+        console.log('[Placeholder] 获取角色', this.currentCharacterId, '的标语:', slogan || '(空)');
+        return slogan || '';
+    },
+
+    // 修改：应用逻辑，支持完整的降级机制
+    async applyLogic() {
+        if (!this.getSettings().enabled) return;
+
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (!textarea) return;
+
+        const settings = this.getSettings();
+        const mode = settings.placeholderSource;
+        const custom = settings.customPlaceholder.trim();
+        const defaultText = this.resolveFallbackPlaceholder(textarea);
+
+        this.stopPlaceholderObserver();
+
+        console.log('[Placeholder] 模式:', mode, '自定义:', custom || '(空)', '当前角色:', this.currentCharacterId);
+
+        if (mode === 'custom') {
+            if (!custom) {
+                console.warn('[Placeholder] 自定义模式但未输入文本，降级为自动模式');
+                // 降级到自动模式
+                await this.applyAutoModeWithFallback(textarea, defaultText);
+            } else {
+                console.log('[Placeholder] 应用自定义文本:', custom);
+                textarea.placeholder = custom;
+                this.startPlaceholderObserver();
+            }
+            return;
+        }
+
+        if (mode === 'auto') {
+            await this.applyAutoModeWithFallback(textarea, defaultText);
+            return;
+        }
+
+        if (mode === 'worldbook') {
+            await this.applyWorldBookModeWithFallback(textarea, defaultText);
+            return;
+        }
+    },
+
+    // 新增：自动模式的完整降级逻辑
+    async applyAutoModeWithFallback(textarea, defaultText) {
+        // 1. 首先尝试当前角色的标语缓存
+        const slogan = this.getCurrentAutoSlogan();
+        if (slogan) {
+            console.log('[Placeholder] 使用当前角色标语:', slogan);
+            textarea.placeholder = slogan;
+            return;
+        }
+        
+        // 2. 降级到世界书
+        console.warn('[Placeholder] 当前角色无标语缓存，尝试世界书…');
+        const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
+        if (world && world !== defaultText) {
+            console.log('[Placeholder] 自动模式降级为世界书:', world);
+            textarea.placeholder = world;
+            return;
+        }
+        
+        // 3. 最终降级到默认文本
+        console.warn('[Placeholder] 自动模式无可用内容，回退原占位符:', defaultText);
+        textarea.placeholder = defaultText;
+    },
+
+    // 新增：世界书模式的降级逻辑
+    async applyWorldBookModeWithFallback(textarea, defaultText) {
+        console.log('[Placeholder] 世界书模式，尝试提取…');
+        const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
+        if (world && world !== defaultText) {
+            console.log('[Placeholder] 世界书替换成功:', world);
+            textarea.placeholder = world;
+        } else {
+            console.warn('[Placeholder] 世界书未命中，保留原占位符:', defaultText);
+            textarea.placeholder = defaultText;
+        }
+    },
+
+    // 修改：角色切换处理，增加延迟确保状态更新
+    async onCharacterSwitch() {
+        console.log('%c[模块-输入框] 角色切换，等待状态更新...', 'color: cyan;');
+        
+        // 等待100ms确保全局状态已更新
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // 更新角色ID
+        this.updateCurrentCharacterId();
+        
+        console.log('%c[模块-输入框] 角色切换完成，新角色ID:', 'color: cyan;', this.currentCharacterId, 
+                   '缓存状态:', this.autoSloganCache[this.currentCharacterId] ? '有缓存' : '无缓存');
+        
+        await this.applyLogic();
     },
 
     renderSettingsHtml() {
