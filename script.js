@@ -287,6 +287,8 @@ renderSettingsHtml() {
     // 角色标语缓存
     autoSloganCache: {},
     currentCharacterId: null,
+    // 新增：标记是否正在处理角色切换
+    isSwitchingCharacter: false,
 
     init() {
         if (!this.getSettings().enabled) {
@@ -320,7 +322,7 @@ renderSettingsHtml() {
         return settings;
     },
 
-    // 新增：可靠的角色ID获取方法
+    // 可靠的角色ID获取方法
     updateCurrentCharacterId() {
         // 方法1: 从当前活动角色获取
         if (window.active_chat && window.active_chat.characterId) {
@@ -359,7 +361,7 @@ renderSettingsHtml() {
         console.warn('[Placeholder] 无法获取角色ID，使用unknown');
     },
 
-    // 修改：设置标语时使用当前角色ID
+    // 设置标语时使用当前角色ID
     setAutoSlogan(text) {
         if (!text) return;
         const slogan = text.trim();
@@ -378,7 +380,7 @@ renderSettingsHtml() {
         }
     },
 
-    // 修改：获取当前角色的标语，支持降级逻辑
+    // 获取当前角色的标语
     getCurrentAutoSlogan() {
         // 确保有最新的角色ID
         this.updateCurrentCharacterId();
@@ -388,7 +390,7 @@ renderSettingsHtml() {
         return slogan || '';
     },
 
-    // 修改：应用逻辑，支持完整的降级机制
+    // 应用逻辑
     async applyLogic() {
         if (!this.getSettings().enabled) return;
 
@@ -428,7 +430,7 @@ renderSettingsHtml() {
         }
     },
 
-    // 新增：自动模式的完整降级逻辑
+    // 自动模式的完整降级逻辑
     async applyAutoModeWithFallback(textarea, defaultText) {
         // 1. 首先尝试当前角色的标语缓存
         const slogan = this.getCurrentAutoSlogan();
@@ -452,7 +454,7 @@ renderSettingsHtml() {
         textarea.placeholder = defaultText;
     },
 
-    // 新增：世界书模式的降级逻辑
+    // 世界书模式的降级逻辑
     async applyWorldBookModeWithFallback(textarea, defaultText) {
         console.log('[Placeholder] 世界书模式，尝试提取…');
         const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
@@ -465,22 +467,87 @@ renderSettingsHtml() {
         }
     },
 
-    // 修改：角色切换处理，增加延迟确保状态更新
+    // 角色切换处理 - 完全重写
     async onCharacterSwitch() {
-        console.log('%c[模块-输入框] 角色切换，等待状态更新...', 'color: cyan;');
+        console.log('%c[模块-输入框] 角色切换开始...', 'color: cyan;');
         
-        // 等待100ms确保全局状态已更新
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // 防止重复处理
+        if (this.isSwitchingCharacter) {
+            console.log('%c[模块-输入框] 角色切换已在处理中，跳过', 'color: orange;');
+            return;
+        }
         
-        // 更新角色ID
-        this.updateCurrentCharacterId();
+        this.isSwitchingCharacter = true;
         
-        console.log('%c[模块-输入框] 角色切换完成，新角色ID:', 'color: cyan;', this.currentCharacterId, 
-                   '缓存状态:', this.autoSloganCache[this.currentCharacterId] ? '有缓存' : '无缓存');
-        
-        await this.applyLogic();
+        try {
+            // 第一步：立即重置为默认文本
+            const textarea = document.getElementById(this.TEXTAREA_ID);
+            if (textarea) {
+                const defaultText = this.resolveFallbackPlaceholder(textarea);
+                textarea.placeholder = defaultText;
+                console.log('%c[模块-输入框] 已重置为默认文本:', 'color: cyan;', defaultText);
+            }
+            
+            // 第二步：等待系统状态稳定
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // 第三步：更新角色ID
+            this.updateCurrentCharacterId();
+            
+            console.log('%c[模块-输入框] 角色切换完成，新角色ID:', 'color: cyan;', this.currentCharacterId, 
+                       '缓存状态:', this.autoSloganCache[this.currentCharacterId] ? '有缓存' : '无缓存');
+            
+            // 第四步：检查是否需要重新检测最新消息
+            const settings = this.getSettings();
+            if (settings.placeholderSource === 'auto') {
+                // 如果没有缓存，尝试从最新消息中检测隐藏文字
+                if (!this.autoSloganCache[this.currentCharacterId]) {
+                    console.log('%c[模块-输入框] 新角色无缓存，尝试检测最新消息...', 'color: cyan;');
+                    await this.tryExtractSloganFromLatestMessage();
+                }
+            }
+            
+            // 第五步：应用逻辑
+            await this.applyLogic();
+            
+        } finally {
+            this.isSwitchingCharacter = false;
+        }
     },
 
+    // 新增：从最新消息中尝试提取标语
+    async tryExtractSloganFromLatestMessage() {
+        try {
+            // 获取所有AI消息（非用户消息）
+            const aiMessages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
+            if (aiMessages.length === 0) {
+                console.log('[Placeholder] 未找到AI消息');
+                return;
+            }
+            
+            // 从最新的消息开始查找
+            for (let i = aiMessages.length - 1; i >= 0; i--) {
+                const message = aiMessages[i];
+                const sloganElement = message.querySelector('.mes_text div[hidden].slogan-container') || 
+                                     message.querySelector('.mes_text div[hidden]');
+                
+                if (sloganElement) {
+                    const slogan = sloganElement.textContent.trim().replace(/^✦❋/, '').trim();
+                    if (slogan) {
+                        console.log(`[Placeholder] 从最新消息#${i}提取标语:`, slogan);
+                        this.setAutoSlogan(slogan);
+                        return;
+                    }
+                }
+            }
+            
+            console.log('[Placeholder] 在最新消息中未找到标语元素');
+        } catch (error) {
+            console.error('[Placeholder] 检测最新消息时出错:', error);
+        }
+    },
+
+    // 以下方法保持不变...
     renderSettingsHtml() {
         const settings = this.getSettings();
         return `
@@ -548,148 +615,6 @@ renderSettingsHtml() {
         return textarea.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助';
     },
 
-    // 获取当前角色ID
-    getCurrentCharacterId() {
-        // 尝试从不同位置获取角色ID
-        if (window.characterId) return window.characterId;
-        if (window.chat && window.chat.length > 0 && window.chat[0].characterId) return window.chat[0].characterId;
-        if (this.iframeWindow && this.iframeWindow.characterId) return this.iframeWindow.characterId;
-        return 'unknown';
-    },
-
-    // 设置标语时关联到当前角色
-    setAutoSlogan(text) {
-        if (!text) return;
-        const slogan = text.trim();
-        if (!slogan) return;
-        
-        const characterId = this.getCurrentCharacterId();
-        console.log('[Placeholder] 更新角色', characterId, '的标语缓存:', slogan);
-        this.autoSloganCache[characterId] = slogan;
-        this.currentCharacterId = characterId;
-        
-        const settings = this.getSettings();
-        if (!settings.enabled) return;
-        if (settings.placeholderSource === 'auto') {
-            this.applyLogic();
-        }
-    },
-
-    // 获取当前角色的标语
-    getCurrentAutoSlogan() {
-        const characterId = this.getCurrentCharacterId();
-        const slogan = this.autoSloganCache[characterId];
-        console.log('[Placeholder] 获取角色', characterId, '的标语:', slogan || '(空)');
-        return slogan || '';
-    },
-
-    async applyLogic() {
-        if (!this.getSettings().enabled) return;
-
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        if (!textarea) return;
-
-        const settings = this.getSettings();
-        const mode = settings.placeholderSource;
-        const custom = settings.customPlaceholder.trim();
-        const defaultText = this.resolveFallbackPlaceholder(textarea);
-
-        this.stopPlaceholderObserver();
-
-        console.log('[Placeholder] 模式:', mode, '自定义:', custom || '(空)', '当前角色:', this.getCurrentCharacterId());
-
-        if (mode === 'custom') {
-            if (!custom) {
-                console.warn('[Placeholder] 自定义模式但未输入文本，保留原占位符:', defaultText);
-                textarea.placeholder = defaultText;
-                return;
-            }
-            console.log('[Placeholder] 应用自定义文本:', custom);
-            textarea.placeholder = custom;
-            this.startPlaceholderObserver();
-            return;
-        }
-
-        if (mode === 'auto') {
-            // 使用当前角色的标语
-            const slogan = this.getCurrentAutoSlogan();
-            if (slogan) {
-                console.log('[Placeholder] 使用当前角色标语:', slogan);
-                textarea.placeholder = slogan;
-                return;
-            }
-            console.warn('[Placeholder] 当前角色无标语缓存，尝试世界书…');
-            
-            // 修复：直接获取世界书并设置，而不是通过applyWorldBookLogic
-            const worldBookPlaceholder = await this.getWorldBookPlaceholder();
-            if (worldBookPlaceholder && worldBookPlaceholder !== defaultText) {
-                console.log('[Placeholder] 自动模式降级为世界书:', worldBookPlaceholder);
-                textarea.placeholder = worldBookPlaceholder;
-            } else {
-                console.warn('[Placeholder] 自动模式无可用内容，回退原占位符:', defaultText);
-                textarea.placeholder = defaultText;
-            }
-            return;
-        }
-
-        if (mode === 'worldbook') {
-            console.log('[Placeholder] 世界书模式，尝试提取…');
-            const worldBookPlaceholder = await this.getWorldBookPlaceholder();
-            if (worldBookPlaceholder && worldBookPlaceholder !== defaultText) {
-                console.log('[Placeholder] 世界书替换成功:', worldBookPlaceholder);
-                textarea.placeholder = worldBookPlaceholder;
-            } else {
-                console.warn('[Placeholder] 世界书未命中，保留原占位符:', defaultText);
-                textarea.placeholder = defaultText;
-            }
-        }
-    },
-
-    // 新增：专门获取世界书占位符的方法
-    async getWorldBookPlaceholder() {
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        const defaultText = this.resolveFallbackPlaceholder(textarea);
-        
-        try {
-            if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
-                console.log('[Placeholder] 访问世界书接口成功。');
-                const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
-                console.log('[Placeholder] 当前世界书:', lorebookName || '(无)');
-                if (lorebookName) {
-                    const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
-                    console.log('[Placeholder] 世界书条目数:', Array.isArray(activeEntries) ? activeEntries.length : '(不可用)');
-                    if (Array.isArray(activeEntries)) {
-                        const targetEntry = activeEntries.find(entry => entry.comment === '输入框');
-                        if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
-                            const worldBookPlaceholder = targetEntry.content;
-                            console.log('[Placeholder] 命中世界书条目，内容:', worldBookPlaceholder);
-                            return worldBookPlaceholder;
-                        } else {
-                            console.warn('[Placeholder] 未找到 comment="输入框" 的条目。');
-                        }
-                    }
-                }
-            } else {
-                console.error('[Placeholder] 读取世界书接口不可用。');
-            }
-        } catch (error) {
-            console.error('[模块-输入框] 读取世界书时出错:', error);
-        }
-        
-        return null;
-    },
-
-    async onCharacterSwitch() {
-        const newCharacterId = this.getCurrentCharacterId();
-        console.log('%c[模块-输入框] 角色切换，新角色ID:', 'color: cyan;', newCharacterId, '缓存状态:', this.autoSloganCache[newCharacterId] ? '有缓存' : '无缓存');
-        
-        // 更新当前角色ID
-        this.currentCharacterId = newCharacterId;
-        
-        // 立即应用逻辑，确保显示正确的占位符
-        await this.applyLogic();
-    },
-
     startPlaceholderObserver() {
         const textarea = document.getElementById(this.TEXTAREA_ID);
         const settings = this.getSettings();
@@ -722,6 +647,41 @@ renderSettingsHtml() {
             this.placeholderObserver.disconnect();
             this.placeholderObserver = null;
         }
+    },
+
+    async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
+        let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
+
+        try {
+            if (this.iframeWindow && this.iframeWindow.getCurrentCharPrimaryLorebook && this.iframeWindow.getLorebookEntries) {
+                console.log('[Placeholder] 访问世界书接口成功。');
+                const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
+                console.log('[Placeholder] 当前世界书:', lorebookName || '(无)');
+                if (lorebookName) {
+                    const activeEntries = await this.iframeWindow.getLorebookEntries(lorebookName);
+                    console.log('[Placeholder] 世界书条目数:', Array.isArray(activeEntries) ? activeEntries.length : '(不可用)');
+                    if (Array.isArray(activeEntries)) {
+                        const targetEntry = activeEntries.find(entry => entry.comment === '输入框');
+                        if (targetEntry && typeof targetEntry.content === 'string' && targetEntry.content.trim() !== '') {
+                            finalPlaceholder = targetEntry.content;
+                            console.log('[Placeholder] 命中世界书条目，内容:', finalPlaceholder);
+                        } else {
+                            console.warn('[Placeholder] 未找到 comment="输入框" 的条目。');
+                        }
+                    }
+                }
+            } else {
+                console.error('[Placeholder] 读取世界书接口不可用。');
+            }
+        } catch (error) {
+            console.error('[模块-输入框] 读取世界书时出错:', error);
+        }
+
+        if (setPlaceholder) {
+            textarea.placeholder = finalPlaceholder;
+            console.log('[Placeholder] 已设置占位符:', finalPlaceholder);
+        }
+        return finalPlaceholder;
     },
 
     waitForIframe() {
