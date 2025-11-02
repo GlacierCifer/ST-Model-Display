@@ -526,7 +526,7 @@ textarea.placeholder = world;
                 </div>
 
                 <div id="placeholder_panel_auto" class="placeholder-panel" style="${settings.placeholderSource === 'auto' ? '' : 'display: none;'}">
-                    <p class="sub-label">自定义注入AI的提示词（末尾记得限制字数）：</p>
+                    <p class="sub-label">注入的提示词（别忘记限制回复字数）：</p>
                     <textarea id="slogan_prompt_input" class="text_pole" rows="4" placeholder="输入自定义提示词...">${settings.sloganPrompt}</textarea>
                 </div>
 
