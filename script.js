@@ -614,7 +614,7 @@ textarea.placeholder = world;
                 textarea.attr('placeholder', '修改此处内容可同步更新世界书条目...');
             } else {
                  textarea.val('');
-                 textarea.attr('placeholder', '未找到“输入框”条目。请自行创建，开关闭合即可。');
+                 textarea.attr('placeholder', '未找到“输入框”条目，输入内容即可创建本角色专属输入框提示。(请不要在首页创建！出事概不负责！)');
             }
         } catch (error) {
             console.error('[Placeholder] 加载世界书内容到面板时出错:', error);
