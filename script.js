@@ -270,7 +270,7 @@ renderSettingsHtml() {
 };
 // ###################################################################
 //
-//  模块 2: 输入框美化模块 (Placeholder Beautifier) - 修复版
+//  模块 2: 输入框美化模块 (Placeholder Beautifier) - 简洁修复版
 //
 // ###################################################################
 
@@ -284,7 +284,6 @@ const PlaceholderModule = {
         placeholderSource: 'custom',
     }),
     currentSlogan: null,
-    isProcessing: false, // 防止重复处理
 
     init() {
         if (!this.getSettings().enabled) {
@@ -295,7 +294,6 @@ const PlaceholderModule = {
             if (script.eventSource && script.event_types) {
                 script.eventSource.on(script.event_types.CHAT_CHANGED, this.onCharacterSwitch.bind(this));
             }
-            this.startDOMMonitoring(); // 启动DOM监听
             this.applyLogic();
             console.log('[模块-输入框] 初始化成功。');
         });
@@ -329,13 +327,23 @@ const PlaceholderModule = {
         
         console.log('[Placeholder] 设置当前标语:', slogan);
         this.currentSlogan = slogan;
-        this.updatePlaceholder();
+        
+        const settings = this.getSettings();
+        if (!settings.enabled) return;
+        if (settings.placeholderSource === 'auto') {
+            this.updatePlaceholder();
+        }
     },
 
-    // 从消息中提取标语
-    extractSloganFromMessage(messageElement) {
+    // 从最新消息中提取标语
+    extractSloganFromLatestMessage() {
         try {
-            const sloganElement = messageElement.querySelector('.mes_text div[hidden].slogan-container');
+            // 只检查最新的AI消息
+            const aiMessages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
+            if (aiMessages.length === 0) return null;
+            
+            const latestMessage = aiMessages[aiMessages.length - 1];
+            const sloganElement = latestMessage.querySelector('.mes_text div[hidden].slogan-container');
             
             if (sloganElement) {
                 const slogan = sloganElement.textContent.trim().replace(/^✦❋/, '').trim();
@@ -351,167 +359,81 @@ const PlaceholderModule = {
         }
     },
 
-    // 从最新AI消息中提取标语
-    extractSloganFromLatestMessage() {
-        try {
-            const aiMessages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
-            if (aiMessages.length === 0) return null;
-            
-            const latestMessage = aiMessages[aiMessages.length - 1];
-            return this.extractSloganFromMessage(latestMessage);
-        } catch (error) {
-            console.error('[Placeholder] 提取最新消息标语时出错:', error);
-            return null;
-        }
-    },
-
     // 更新占位符文本
     updatePlaceholder() {
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
         
         const settings = this.getSettings();
-        const defaultText = this.resolveFallbackPlaceholder(textarea);
         
         if (settings.placeholderSource === 'custom') {
-            textarea.placeholder = settings.customPlaceholder || defaultText;
+            textarea.placeholder = settings.customPlaceholder || this.resolveFallbackPlaceholder(textarea);
         } else if (settings.placeholderSource === 'auto') {
-            textarea.placeholder = this.currentSlogan || defaultText;
+            textarea.placeholder = this.currentSlogan || this.resolveFallbackPlaceholder(textarea);
         }
     },
 
-    // 应用逻辑 - 修复闪烁问题
+    // 简化的应用逻辑
     async applyLogic() {
-        if (this.isProcessing) return;
-        this.isProcessing = true;
-        
-        try {
-            if (!this.getSettings().enabled) return;
+        if (!this.getSettings().enabled) return;
 
-            const textarea = document.getElementById(this.TEXTAREA_ID);
-            if (!textarea) return;
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (!textarea) return;
 
-            const settings = this.getSettings();
-            const mode = settings.placeholderSource;
-            const defaultText = this.resolveFallbackPlaceholder(textarea);
+        const settings = this.getSettings();
+        const mode = settings.placeholderSource;
+        const defaultText = this.resolveFallbackPlaceholder(textarea);
 
-            if (mode === 'custom') {
-                textarea.placeholder = settings.customPlaceholder || defaultText;
+        if (mode === 'custom') {
+            textarea.placeholder = settings.customPlaceholder || defaultText;
+            return;
+        }
+
+        if (mode === 'auto') {
+            // 先尝试提取现有标语
+            const slogan = this.extractSloganFromLatestMessage();
+            if (slogan) {
+                this.currentSlogan = slogan;
+                textarea.placeholder = slogan;
                 return;
             }
-
-            if (mode === 'auto') {
-                // 先尝试提取现有标语
-                const slogan = this.extractSloganFromLatestMessage();
-                if (slogan) {
-                    this.currentSlogan = slogan;
-                    textarea.placeholder = slogan;
-                    return;
-                }
-                
-                // 没有标语则尝试世界书
-                console.log('[Placeholder] 未找到标语，尝试世界书...');
-                const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
-                if (world && world !== defaultText) {
-                    console.log('[Placeholder] 使用世界书内容:', world);
-                    textarea.placeholder = world;
-                    return;
-                }
-                
-                // 最终使用默认文本
-                console.log('[Placeholder] 使用默认文本');
-                this.currentSlogan = null;
-                textarea.placeholder = defaultText;
+            
+            // 没有标语则尝试世界书
+            const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
+            if (world && world !== defaultText) {
+                this.currentSlogan = world;
+                textarea.placeholder = world;
                 return;
             }
+            
+            // 最终使用默认文本
+            this.currentSlogan = null;
+            textarea.placeholder = defaultText;
+            return;
+        }
 
-            if (mode === 'worldbook') {
-                const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
-                textarea.placeholder = (world && world !== defaultText) ? world : defaultText;
-                return;
-            }
-        } finally {
-            this.isProcessing = false;
+        if (mode === 'worldbook') {
+            const world = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
+            textarea.placeholder = (world && world !== defaultText) ? world : defaultText;
+            return;
         }
     },
 
-    // 角色切换处理 - 修复闪烁
+    // 角色切换处理
     async onCharacterSwitch() {
         console.log('[模块-输入框] 角色切换');
         
         // 重置状态
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (textarea) {
-            const defaultText = this.resolveFallbackPlaceholder(textarea);
-            textarea.placeholder = defaultText;
+            textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
             this.currentSlogan = null;
         }
         
-        // 延迟后重新检测 - 只执行一次完整的应用逻辑
+        // 延迟后重新检测
         setTimeout(() => {
             this.applyLogic();
-        }, 1000);
-    },
-
-    // 启动DOM监听 - 修复新回复识别问题
-    startDOMMonitoring() {
-        const chatContainer = document.getElementById('chat');
-        if (!chatContainer) {
-            console.warn('[Placeholder] 未找到聊天容器，延迟设置DOM监听');
-            setTimeout(() => this.startDOMMonitoring(), 1000);
-            return;
-        }
-        
-        // 移除旧的监听器（如果有）
-        if (this.domObserver) {
-            this.domObserver.disconnect();
-        }
-        
-        this.domObserver = new MutationObserver((mutations) => {
-            // 防止重复处理
-            if (this.isProcessing) return;
-            
-            let hasNewAIMessage = false;
-            
-            // 检查是否有新的AI消息
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'childList') {
-                    mutation.addedNodes.forEach((node) => {
-                        if (node.nodeType === 1 && 
-                            node.classList && 
-                            node.classList.contains('mes') && 
-                            node.getAttribute('is_user') !== 'true') {
-                            hasNewAIMessage = true;
-                        }
-                    });
-                }
-            });
-            
-            if (hasNewAIMessage) {
-                console.log('[Placeholder] DOM监听检测到新AI消息');
-                this.isProcessing = true;
-                
-                // 延迟处理，确保DOM完全渲染
-                setTimeout(() => {
-                    const settings = this.getSettings();
-                    if (settings.enabled && settings.placeholderSource === 'auto') {
-                        const slogan = this.extractSloganFromLatestMessage();
-                        if (slogan) {
-                            this.setCurrentSlogan(slogan);
-                        }
-                    }
-                    this.isProcessing = false;
-                }, 300);
-            }
-        });
-        
-        // 使用更全面的监听配置
-        this.domObserver.observe(chatContainer, {
-            childList: true,
-            subtree: true // 改为true以捕获所有子元素变化
-        });
-        
-        console.log('[Placeholder] DOM监听已启动');
+        }, 500);
     },
 
     // 简化的世界书逻辑
@@ -542,7 +464,6 @@ const PlaceholderModule = {
         return defaultText;
     },
 
-    // 以下方法保持不变...
     renderSettingsHtml() {
         const settings = this.getSettings();
         return `
@@ -656,6 +577,132 @@ const SloganInjectionModule = {
 
 // ###################################################################
 //
+//  标语提取模块 (独立职责)
+//
+// ###################################################################
+
+const SloganExtractionModule = {
+    initialized: false,
+    domObserver: null,
+
+    // 初始化模块 - 只负责提取
+    init() {
+        if (this.initialized || !script.eventSource || !script.event_types) return;
+        
+        // 注册事件监听
+        script.eventSource.on(script.event_types.CHARACTER_MESSAGE_RENDERED, this.onMessageRendered.bind(this));
+        script.eventSource.on(script.event_types.MESSAGE_SWIPED, this.onMessageRendered.bind(this));
+        
+        // 启动DOM监听
+        this.setupDOMMonitoring();
+        
+        this.initialized = true;
+        console.log('[SloganExtraction] 标语提取模块初始化完成');
+    },
+
+    // 消息渲染事件处理
+    onMessageRendered(payload = {}) {
+        console.log('[SloganExtraction] 消息渲染完成，准备提取标语');
+        // 延迟提取，确保DOM完全渲染
+        setTimeout(() => {
+            this.extractAndSetSlogan();
+        }, 300);
+    },
+
+    // 设置DOM监听
+    setupDOMMonitoring() {
+        const chatContainer = document.getElementById('chat');
+        if (!chatContainer) {
+            console.warn('[SloganExtraction] 未找到聊天容器，延迟设置DOM监听');
+            setTimeout(() => this.setupDOMMonitoring(), 1000);
+            return;
+        }
+        
+        this.domObserver = new MutationObserver((mutations) => {
+            let hasNewAIMessage = false;
+            
+            mutations.forEach((mutation) => {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach((node) => {
+                        if (node.nodeType === 1 && 
+                            node.classList && 
+                            node.classList.contains('mes') && 
+                            node.getAttribute('is_user') !== 'true') {
+                            hasNewAIMessage = true;
+                        }
+                    });
+                }
+            });
+            
+            if (hasNewAIMessage) {
+                console.log('[SloganExtraction] DOM监听检测到新AI消息');
+                // 延迟提取，确保DOM完全渲染
+                setTimeout(() => {
+                    this.extractAndSetSlogan();
+                }, 300);
+            }
+        });
+        
+        this.domObserver.observe(chatContainer, {
+            childList: true,
+            subtree: true
+        });
+        
+        console.log('[SloganExtraction] DOM监听已启动');
+    },
+
+    // 提取并设置标语
+    extractAndSetSlogan() {
+        const settings = PlaceholderModule.getSettings();
+        if (!settings.enabled || settings.placeholderSource !== 'auto') return;
+        
+        try {
+            const slogan = this.extractSloganFromLatestMessage();
+            if (slogan) {
+                console.log('[SloganExtraction] 提取到标语:', slogan);
+                PlaceholderModule.setCurrentSlogan(slogan);
+            }
+        } catch (error) {
+            console.error('[SloganExtraction] 提取标语时出错:', error);
+        }
+    },
+
+    // 从最新消息中提取标语
+    extractSloganFromLatestMessage() {
+        try {
+            const aiMessages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
+            if (aiMessages.length === 0) {
+                console.log('[SloganExtraction] 未找到AI消息');
+                return null;
+            }
+            
+            const latestMessage = aiMessages[aiMessages.length - 1];
+            const sloganElement = latestMessage.querySelector('.mes_text div[hidden].slogan-container');
+            
+            if (sloganElement) {
+                const slogan = sloganElement.textContent.trim().replace(/^✦❋/, '').trim();
+                return slogan;
+            }
+            return null;
+        } catch (error) {
+            console.error('[SloganExtraction] DOM查询失败:', error);
+            return null;
+        }
+    },
+
+    // 清理方法
+    destroy() {
+        if (this.domObserver) {
+            this.domObserver.disconnect();
+            this.domObserver = null;
+        }
+        this.initialized = false;
+        console.log('[SloganExtraction] DOM监听已清理');
+    }
+};
+
+// ###################################################################
+//
 //  主程序: 初始化与UI集成
 //
 // ###################################################################
@@ -746,6 +793,7 @@ function initializeCombinedExtension() {
         ModelDisplayModule.init();
         PlaceholderModule.init();
         SloganInjectionModule.init();
+        SloganExtractionModule.init(); // 新增
 
         console.log('[小美化集] 所有模块均已加载。');
 
