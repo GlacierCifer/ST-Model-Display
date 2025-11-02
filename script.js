@@ -531,7 +531,7 @@ textarea.placeholder = world;
                 </div>
 
                 <div id="placeholder_panel_worldbook" class="placeholder-panel" style="${settings.placeholderSource === 'worldbook' ? '' : 'display: none;'}">
-                    <p class="sub-label">编辑当前角色世界书中的“输入框”条目：</p>
+                    <p class="sub-label">当前角色世界书中的“输入框”条目：</p>
                     <textarea id="worldbook_placeholder_input" class="text_pole" rows="3" placeholder="正在从世界书加载..."></textarea>
                 </div>
             </div>`;
@@ -578,11 +578,24 @@ textarea.placeholder = world;
         // 绑定“世界书”文本域事件
         $(document).on('input', '#worldbook_placeholder_input', (e) => {
             const content = $(e.currentTarget).val();
+
             // 使用防抖更新世界书
             clearTimeout(this.worldbookUpdateDebounce);
             this.worldbookUpdateDebounce = setTimeout(() => {
                 this.updateWorldBookFromPanel(content);
-            }, 500); // 500毫秒延迟
+
+                // 新增：如果当前是世界书模式，立即应用到输入框
+                const settings = this.getSettings();
+                if (settings.placeholderSource === 'worldbook') {
+                    const textarea = document.getElementById(this.TEXTAREA_ID);
+                    if (textarea) {
+                        // 如果内容为空，使用默认占位符
+                        const placeholder = content.trim() || this.resolveFallbackPlaceholder(textarea);
+                        textarea.placeholder = placeholder;
+                        console.log('[Placeholder] 世界书内容已应用到输入框:', placeholder);
+                    }
+                }
+            }, 500);
         });
     },
 
@@ -601,7 +614,7 @@ textarea.placeholder = world;
                 textarea.attr('placeholder', '修改此处内容可同步更新世界书条目...');
             } else {
                  textarea.val('');
-                 textarea.attr('placeholder', '未找到“输入框”条目。在此输入内容将自动创建。');
+                 textarea.attr('placeholder', '未找到“输入框”条目。请自行创建，开关闭合即可。');
             }
         } catch (error) {
             console.error('[Placeholder] 加载世界书内容到面板时出错:', error);
@@ -617,16 +630,6 @@ textarea.placeholder = world;
             return;
         }
 
-        // 核心依赖：需要iframe暴露世界书的增改API
-        // 假设API为：
-        // - iframeWindow.updateLorebookEntry(bookName, entry)
-        // - iframeWindow.addLorebookEntry(bookName, entry)
-        if (!this.iframeWindow.updateLorebookEntry || !this.iframeWindow.addLorebookEntry) {
-            console.error('[Placeholder] 致命错误：缺少世界书写入接口 (updateLorebookEntry / addLorebookEntry)，无法保存。');
-            $('#worldbook_placeholder_input').attr('placeholder', '错误：缺少写入API，无法保存！');
-            return;
-        }
-
         try {
             const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
             if (!lorebookName) {
@@ -638,28 +641,46 @@ textarea.placeholder = world;
             const targetEntry = entries.find(entry => entry.comment === '输入框');
 
             if (targetEntry) {
-                // 更新现有条目
+                // 使用测试成功的更新方法
                 console.log(`[Placeholder] 找到条目 (UID: ${targetEntry.uid})，准备更新。`);
-                const updatedEntry = { ...targetEntry, content: content };
-                await this.iframeWindow.updateLorebookEntry(lorebookName, updatedEntry);
+                await this.iframeWindow.updateLorebookEntriesWith(lorebookName, (entries) => {
+                    return entries.map(entry => {
+                        if (entry.comment === '输入框') {
+                            return { 
+                                ...entry, 
+                                content: content,
+                                enabled: false // 保持禁用状态
+                            };
+                        }
+                        return entry;
+                    });
+                });
                 console.log('[Placeholder] 世界书条目已更新。');
             } else {
-                // 创建新条目
+                // 使用测试成功的创建方法
                 console.log('[Placeholder] 未找到条目，准备创建新条目。');
                 const newEntry = {
-                    key: ['输入框'], // 触发关键词
-                    comment: '输入框', // 注释
+                    key: ['输入框'],
+                    comment: '输入框',
                     content: content,
-                    enabled: false, // 默认不启用
-                    is_always_on: false,
-                    case_sensitive: false,
-                    // ... 其他必要的默认字段
+                    enabled: false,
+                    insertionorder: 100,
+                    selective: false,
+                    secondarykeys: [],
+                    constant: false,
+                    position: 'before_char'
                 };
-                await this.iframeWindow.addLorebookEntry(lorebookName, newEntry);
+                await this.iframeWindow.createLorebookEntry(lorebookName, newEntry);
                 console.log('[Placeholder] 新的世界书条目已创建（未启用）。');
             }
-            // 更新成功后，也同步应用到输入框占位符
-            this.applyLogic();
+
+            // 更新成功后，如果当前是世界书模式，立即应用
+            if (this.getSettings().placeholderSource === 'worldbook') {
+                const textarea = document.getElementById(this.TEXTAREA_ID);
+                if (textarea) {
+                    textarea.placeholder = content.trim() || this.resolveFallbackPlaceholder(textarea);
+                }
+            }
 
         } catch (error) {
             console.error('[Placeholder] 更新世界书时发生错误:', error);
