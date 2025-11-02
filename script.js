@@ -656,7 +656,7 @@ const SloganInjectionModule = {
     initialized: false,
     PROMPT_TEXT: [
         '请在每次正文的末尾额外输出一个隐藏的HTML元素，格式为 `<div hidden class="slogan-container">✦❋内容</div>`。',
-        '元素内仅包含当前角色对当下情况的个人感受或者吐槽，要求模仿网络名言名句的形式，具备黑色幽默感，最长 15 个汉字。',
+        '元素内仅包含当前角色极具个人风格的语录，最长 15 个汉字。',
         '标语在隐藏元素之外不要重复，也不要额外解释。'
     ].join('\n'),
     
