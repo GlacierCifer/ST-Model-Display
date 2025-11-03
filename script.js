@@ -767,25 +767,18 @@ textarea.placeholder = world;
     },
 };
 
-
 // ###################################################################
 //
-//  模块 3: 标语注入 (Slogan Injection) - [逻辑修改]
+//  模块 3: 标语注入 (Slogan Injection) - [添加删除事件支持]
 //
 // ###################################################################
 const SloganInjectionModule = {
     initialized: false,
-    // [修改] 固定的提示词前缀
+    // 固定的提示词前缀
     PROMPT_PREFIX: '请在每次正文的末尾额外输出一个隐藏的HTML元素，格式为 `<div hidden class="slogan-container">✦❋内容</div>`。',
 
-    // ... 其他属性保持不变 ...
-    consoleListener: {
-        isActive: false,
-        originalConsoleLog: null,
-        messagePattern: /Core\/all messages:\s*(\d+)\/(\d+)/,
-        timeoutId: null
-    },
-    domObserver: null,
+    // 简化属性 - 只保留必要的防抖计时器
+    extractionDebounceTimer: null,
     htmlDecodeElement: null,
 
     decodeHtmlEntities(text = '') {
@@ -808,89 +801,88 @@ const SloganInjectionModule = {
         script.eventSource.on(script.event_types.CHAT_COMPLETION_PROMPT_READY, this.onPromptReady.bind(this));
         script.eventSource.on(script.event_types.CHARACTER_MESSAGE_RENDERED, this.onMessageRendered.bind(this));
         script.eventSource.on(script.event_types.MESSAGE_SWIPED, this.onMessageRendered.bind(this));
-
-        this.setupConsoleListener();
-        this.setupDOMMonitoring();
+        // 新增：监听消息删除事件
+        script.eventSource.on(script.event_types.MESSAGE_DELETED, this.onMessageDeleted.bind(this));
 
         this.initialized = true;
-        console.log('[Slogan] 模块初始化完成');
+        console.log('[Slogan] 模块初始化完成（支持删除事件）');
     },
 
-    // [修改] 提示词注入逻辑
+    // 提示词注入逻辑
     onPromptReady(eventData = {}) {
         if (eventData.dryRun === true || !Array.isArray(eventData.chat)) return;
 
         const placeholderSettings = PlaceholderModule.getSettings();
         if (!placeholderSettings.enabled || placeholderSettings.placeholderSource !== 'auto') return;
 
-        // 从设置中获取用户自定义的提示词部分
         const userPrompt = placeholderSettings.sloganPrompt || '';
-
-        // 组合成最终的提示词
         const finalPrompt = `${this.PROMPT_PREFIX}\n${userPrompt}`;
 
         console.log('[Slogan] 注入最终提示词:', finalPrompt);
         eventData.chat.push({ role: 'system', content: finalPrompt });
     },
 
-    // ... 以下方法保持不变 ...
     onMessageRendered(payload = {}) {
-        console.log('[Slogan] 收到渲染事件，等待控制台完成信号');
+        console.log('[Slogan] 收到渲染事件，准备提取标语');
+        
+        // 使用防抖，避免频繁提取
+        clearTimeout(this.extractionDebounceTimer);
+        this.extractionDebounceTimer = setTimeout(() => {
+            this.extractSlogan();
+        }, 800); // 稍微延长等待时间，确保DOM完全渲染
     },
 
-    setupConsoleListener() {
-        if (this.consoleListener.isActive) return;
-        this.consoleListener.originalConsoleLog = console.log;
-        console.log = (...args) => {
-            this.consoleListener.originalConsoleLog.apply(console, args);
-            this.checkConsoleForCompletion(args);
-        };
-        this.consoleListener.isActive = true;
-    },
-
-    checkConsoleForCompletion(args) {
-        try {
-            const logMessage = args.map(arg => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' ');
-            const match = logMessage.match(this.consoleListener.messagePattern);
-            if (match && parseInt(match[1]) === parseInt(match[2])) {
-                this.onStreamingComplete();
-            }
-        } catch (error) {
-            console.error('[Slogan] 检查控制台日志时出错:', error);
-        }
-    },
-
-    onStreamingComplete() {
-        console.log('[Slogan] 确认流式输出完成，开始提取标语');
-        if (this.consoleListener.timeoutId) clearTimeout(this.consoleListener.timeoutId);
-        this.consoleListener.timeoutId = setTimeout(() => {
-            this.extractSloganAfterCompletion();
+    onMessageDeleted(payload = {}) {
+        console.log('[Slogan] 收到删除事件，重新提取标语');
+        
+        // 删除事件也需要防抖，因为可能批量删除
+        clearTimeout(this.extractionDebounceTimer);
+        this.extractionDebounceTimer = setTimeout(() => {
+            this.extractSlogan();
         }, 300);
     },
 
-    extractSloganAfterCompletion() {
-        let slogan = this.extractSloganFromLatestDOM();
+    extractSlogan() {
+        console.log('[Slogan] 开始提取标语');
+        
+        // 直接从DOM中提取最新的AI消息标语
+        const slogan = this.extractSloganFromLatestAIMessage();
         if (slogan) {
+            console.log('[Slogan] 提取到标语:', slogan);
             PlaceholderModule.setAutoSlogan(slogan);
-        } else {
-            console.warn('[Slogan] DOM中未找到标语，尝试备用方法');
-            this.tryBackupExtraction();
+            return true;
         }
-        this.consoleListener.timeoutId = null;
+
+        console.warn('[Slogan] 未找到标语');
+        return false;
     },
 
-    extractSloganFromLatestDOM() {
+    extractSloganFromLatestAIMessage() {
         try {
-            const aiMessages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
-            if (aiMessages.length === 0) return null;
+            // 获取所有AI消息（跳过用户消息）
+            const aiMessages = Array.from(document.querySelectorAll('#chat .mes:not([is_user="true"])'));
+            
+            if (aiMessages.length === 0) {
+                console.log('[Slogan] 未找到AI消息');
+                return null;
+            }
+            
+            // 从最新的AI消息开始检查（从后往前）
             for (let i = aiMessages.length - 1; i >= 0; i--) {
                 const message = aiMessages[i];
-                const sloganElement = message.querySelector('.mes_text div[hidden].slogan-container') || message.querySelector('.mes_text div[hidden]');
+                const sloganElement = message.querySelector('.mes_text div[hidden].slogan-container') || 
+                                     message.querySelector('.mes_text div[hidden]');
+                
                 if (sloganElement) {
                     const slogan = sloganElement.textContent.trim().replace(/^✦❋/, '').trim();
-                    if (slogan) return slogan;
+                    if (slogan) {
+                        console.log(`[Slogan] 从AI消息#${i}提取到标语`);
+                        return slogan;
+                    }
                 }
             }
+            
+            console.log('[Slogan] AI消息中未找到标语元素');
             return null;
         } catch (error) {
             console.error('[Slogan] DOM查询失败:', error);
@@ -898,62 +890,14 @@ const SloganInjectionModule = {
         }
     },
 
-    extractSloganFromMessage(message) {
-        if (!message) return null;
-        const rawText = message.mes_raw || message.mes;
-        return rawText ? this.extractSloganFromText(rawText) : null;
-    },
-
-    extractSloganFromText(text) {
-        if (!text) return null;
-        const decoded = this.decodeHtmlEntities(text);
-        let match = decoded.match(/<div\s+hidden[^>]*class\s*=\s*["']slogan-container["'][^>]*>(.*?)<\/div>/i);
-        if (match) return match[1].trim().replace(/^✦❋/, '').trim();
-        match = decoded.match(/<div\s+hidden[^>]*>.*?✦❋(.*?)<\/div>/i);
-        if (match) return match[1].trim();
-        return null;
-    },
-
-    tryBackupExtraction() {
-        if (window.chat && Array.isArray(window.chat)) {
-            for (let i = window.chat.length - 1; i >= 0; i--) {
-                const message = window.chat[i];
-                if (message && !message.is_user) {
-                    const slogan = this.extractSloganFromMessage(message);
-                    if (slogan) {
-                        PlaceholderModule.setAutoSlogan(slogan);
-                        return;
-                    }
-                }
-            }
-        }
-        console.warn('[Slogan] 所有提取方法都失败。');
-    },
-
-    setupDOMMonitoring() {
-        const chatContainer = document.getElementById('chat');
-        if (!chatContainer) {
-            setTimeout(() => this.setupDOMMonitoring(), 1000);
-            return;
-        }
-        this.domObserver = new MutationObserver((mutations) => {
-            // DOM监听现在仅作为非常次要的备用，主要逻辑依赖控制台
-        });
-        this.domObserver.observe(chatContainer, { childList: true, subtree: true });
-    },
-
     destroy() {
-        // ... 清理方法不变 ...
-        if (this.consoleListener.isActive && this.consoleListener.originalConsoleLog) {
-            console.log = this.consoleListener.originalConsoleLog;
-            this.consoleListener.isActive = false;
+        if (this.extractionDebounceTimer) {
+            clearTimeout(this.extractionDebounceTimer);
+            this.extractionDebounceTimer = null;
         }
-        if (this.consoleListener.timeoutId) clearTimeout(this.consoleListener.timeoutId);
-        if (this.domObserver) this.domObserver.disconnect();
         this.initialized = false;
     }
 };
-
 
 // ###################################################################
 //
