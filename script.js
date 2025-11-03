@@ -18,7 +18,7 @@ import { extension_settings } from '../../../extensions.js';
 
 // ###################################################################
 //
-//  模块 1: 模型名称显示 (Model Display)
+//  模块 1: 模型名称显示 (Model Display) 
 //
 // ###################################################################
 const ModelDisplayModule = {
@@ -30,6 +30,9 @@ const ModelDisplayModule = {
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
+    // 新增：性能优化相关
+    processingMessages: new Set(), // 正在处理的消息ID集合
+    pendingProcessing: new Map(), // 待处理的消息队列
 
     // 1.1 默认设置
     // ---------------------------------------------------------------
@@ -43,7 +46,6 @@ const ModelDisplayModule = {
     // 1.2 模块初始化入口
     // ---------------------------------------------------------------
     init() {
-
         if (this.getSettings().enabled) {
             this.startObservers();
             this.restoreAllFromHistory();
@@ -72,9 +74,9 @@ const ModelDisplayModule = {
         this.rerenderAllModelNames();
     },
 
-renderSettingsHtml() {
-    const settings = this.getSettings();
-    return `
+    renderSettingsHtml() {
+        const settings = this.getSettings();
+        return `
         <div id="model_display_options_wrapper">
             <hr>
             <h3 class="sub-header">模型名称显示</h3>
@@ -103,7 +105,7 @@ renderSettingsHtml() {
                 </div>
             </div>
         </div>`;
-},
+    },
 
     bindSettingsEvents() {
         $(document).on('input', '#model_display_font_size', (e) => { this.getSettings().fontSize = $(e.currentTarget).val(); this.saveSettings(); });
@@ -127,39 +129,57 @@ renderSettingsHtml() {
         }
     },
 
+    // 优化：更高效的深度查询，限制搜索范围
     deepQuerySelector(selector, root = document) {
         try {
-            const found = root.querySelector(selector); if (found) return found;
+            // 先尝试常规查询
+            const found = root.querySelector(selector); 
+            if (found) return found;
+            
+            // 只在必要时搜索shadow DOM
             for (const element of root.querySelectorAll('*')) {
                 if (element.shadowRoot) {
-                    const foundInShadow = this.deepQuerySelector(selector, element.shadowRoot);
+                    const foundInShadow = element.shadowRoot.querySelector(selector);
                     if (foundInShadow) return foundInShadow;
                 }
             }
-        } catch (e) {}
+        } catch (e) {
+            console.warn('[模块-模型显示] 深度查询出错:', e);
+        }
         return null;
     },
 
     getCurrentModelName(messageElement) {
-        const svgTitle = this.deepQuerySelector('.timestamp-icon title', messageElement);
-        if (svgTitle && svgTitle.textContent.includes(' - ')) return svgTitle.textContent.split(' - ')[1];
+        // 优化：直接查询timestamp-icon内的title元素
+        const iconSvg = this.deepQuerySelector('.timestamp-icon', messageElement);
+        if (!iconSvg) return null;
+        
+        const svgTitle = iconSvg.querySelector('title');
+        if (svgTitle && svgTitle.textContent.includes(' - ')) {
+            return svgTitle.textContent.split(' - ')[1];
+        }
         return null;
     },
 
     processIcon(iconSvg, modelName) {
         if (iconSvg.dataset.modelInjected === 'true') return;
+        
         const settings = this.getSettings();
         const fullText = `${settings.prefix}${modelName}${settings.suffix}`;
         const originalHeight = iconSvg.getBoundingClientRect().height || 22;
+        
         iconSvg.innerHTML = '';
         iconSvg.removeAttribute('viewBox');
+        
         const textElement = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         textElement.textContent = fullText;
         textElement.setAttribute('y', '50%');
         textElement.setAttribute('dominant-baseline', 'middle');
         textElement.style.fill = 'var(--underline_text_color)';
         textElement.style.fontSize = settings.fontSize;
+        
         iconSvg.appendChild(textElement);
+        
         requestAnimationFrame(() => {
             try {
                 const textWidth = textElement.getBBox().width;
@@ -167,102 +187,181 @@ renderSettingsHtml() {
                 iconSvg.style.height = originalHeight + 'px';
                 iconSvg.setAttribute('viewBox', `0 0 ${textWidth} ${originalHeight}`);
                 iconSvg.dataset.modelInjected = 'true';
-            } catch (e) { console.error("[模块-模型显示] 渲染SVG时出错:", e); }
+            } catch (e) { 
+                console.error("[模块-模型显示] 渲染SVG时出错:", e); 
+            }
         });
     },
 
-    waitForElementAndProcess(messageElement, timeout = 5000) {
+    // 优化：使用更高效的等待策略，减少轮询
+    waitForElementAndProcess(messageElement, timeout = 8000) {
         if (!messageElement || messageElement.getAttribute('is_user') === 'true') return;
+        
+        const messageId = this.getMessageId(messageElement);
+        if (!messageId || messageId === '0' || messageId === '1') return;
+        
+        // 如果已经在处理中，跳过
+        if (this.processingMessages.has(messageId)) return;
+        this.processingMessages.add(messageId);
+        
         const startTime = Date.now();
-        const intervalId = setInterval(() => {
+        let checkCount = 0;
+        
+        const checkIcon = () => {
+            checkCount++;
+            
             if (Date.now() - startTime > timeout) {
-                clearInterval(intervalId);
-                const finalIdElement = messageElement.querySelector('.mesIDDisplay');
-                if (finalIdElement) {
-                    const messageId = finalIdElement.textContent.replace('#', '');
-                    if (messageId !== '0' && messageId !== '1') {
-                         console.warn(`[模块-模型显示] 等待楼层 #${messageId} 的元素或模型名称超时。`);
-                    }
-                }
+                this.processingMessages.delete(messageId);
+                console.warn(`[模块-模型显示] 等待楼层 #${messageId} 的模型名称超时 (检查了 ${checkCount} 次)`);
                 return;
             }
+            
             const iconSvg = this.deepQuerySelector('.icon-svg.timestamp-icon', messageElement);
-            const idElement = messageElement.querySelector('.mesIDDisplay');
-            if (!iconSvg || !idElement) { return; }
-
-            const messageId = idElement.textContent.replace('#', '');
-            if (messageId === '0' || messageId === '1') {
-                clearInterval(intervalId);
+            
+            // 如果图标不存在，继续等待
+            if (!iconSvg) {
+                setTimeout(checkIcon, 100);
                 return;
             }
-
+            
             const modelName = this.getCurrentModelName(messageElement);
-            if (modelName && messageId) {
-                clearInterval(intervalId);
+            
+            if (modelName) {
+                this.processingMessages.delete(messageId);
                 this.modelHistory[messageId] = modelName;
                 this.processIcon(iconSvg, modelName);
+            } else {
+                // 模型名称还没出现，继续等待但间隔逐渐延长
+                const delay = Math.min(200 + (checkCount * 50), 1000); // 最大1秒间隔
+                setTimeout(checkIcon, delay);
             }
-        }, 200);
+        };
+        
+        // 立即开始检查
+        setTimeout(checkIcon, 100);
+    },
+
+    getMessageId(messageElement) {
+        const idElement = messageElement.querySelector('.mesIDDisplay');
+        return idElement ? idElement.textContent.replace('#', '') : null;
     },
 
     processAndRecordMessage(messageElement) {
-        this.waitForElementAndProcess(messageElement);
+        // 优化：使用防抖处理，避免短时间内重复处理同一消息
+        const messageId = this.getMessageId(messageElement);
+        if (!messageId) return;
+        
+        if (this.pendingProcessing.has(messageId)) {
+            clearTimeout(this.pendingProcessing.get(messageId));
+        }
+        
+        const timeoutId = setTimeout(() => {
+            this.pendingProcessing.delete(messageId);
+            this.waitForElementAndProcess(messageElement);
+        }, 50); // 延迟50ms，合并快速连续的变化
+        
+        this.pendingProcessing.set(messageId, timeoutId);
     },
 
     restoreAllFromHistory() {
         if (!this.getSettings().enabled) return;
+        
         setTimeout(() => {
             document.querySelectorAll('#chat .mes:not([is_user="true"])').forEach(message => {
                 const iconSvg = this.deepQuerySelector('.icon-svg.timestamp-icon', message);
-                const idElement = message.querySelector('.mesIDDisplay');
-                if (iconSvg && idElement && iconSvg.dataset.modelInjected !== 'true') {
-                    const messageId = idElement.textContent.replace('#', '');
+                const messageId = this.getMessageId(message);
+                
+                if (iconSvg && messageId && iconSvg.dataset.modelInjected !== 'true') {
                     if (this.modelHistory[messageId]) {
                         this.processIcon(iconSvg, this.modelHistory[messageId]);
                     } else {
-                        this.waitForElementAndProcess(message);
+                        this.processAndRecordMessage(message);
                     }
                 }
             });
         }, 500);
     },
 
+    // 优化：重构观察者逻辑，缩小监听范围
     startObservers() {
         this.stopObservers();
         const chatNode = document.getElementById('chat');
+        
         if (chatNode) {
+            // 优化：只监听直接子节点的变化，避免深度遍历
             this.chatContentObserver = new MutationObserver((mutationsList) => {
-                mutationsList.forEach(mutation => {
+                for (const mutation of mutationsList) {
                     if (mutation.type === 'childList') {
+                        // 优化：批量处理新增节点
+                        const addedMessages = [];
+                        
                         mutation.addedNodes.forEach(node => {
                             if (node.nodeType === 1) {
-                                if (node.matches('.mes')) { this.processAndRecordMessage(node); }
-                                else if (node.querySelector) { node.querySelectorAll('.mes').forEach(mes => this.processAndRecordMessage(mes)); }
+                                if (node.matches && node.matches('.mes')) {
+                                    addedMessages.push(node);
+                                } else if (node.querySelectorAll) {
+                                    const nestedMessages = node.querySelectorAll('.mes');
+                                    nestedMessages.forEach(mes => addedMessages.push(mes));
+                                }
                             }
                         });
+                        
+                        // 批量处理消息
+                        if (addedMessages.length > 0) {
+                            requestAnimationFrame(() => {
+                                addedMessages.forEach(message => {
+                                    this.processAndRecordMessage(message);
+                                });
+                            });
+                        }
                     }
-                });
+                }
             });
-            this.chatContentObserver.observe(chatNode, { childList: true, subtree: true });
+            
+            // 优化：只监听直接子节点变化，不监听子树
+            this.chatContentObserver.observe(chatNode, { 
+                childList: true, 
+                subtree: false // 关键优化：不监听深层变化
+            });
         }
+        
+        // 保留聊天容器观察者，但同样优化
         this.chatContainerObserver = new MutationObserver((mutationsList) => {
-            mutationsList.forEach(mutation => {
+            for (const mutation of mutationsList) {
                 if (mutation.type === 'childList') {
-                    mutation.addedNodes.forEach(node => {
+                    for (const node of mutation.addedNodes) {
                         if (node.nodeType === 1 && node.id === 'chat') {
                             this.restoreAllFromHistory();
                             this.startObservers();
+                            break;
                         }
-                    });
+                    }
                 }
-            });
+            }
         });
-        this.chatContainerObserver.observe(document.body, { childList: true });
+        
+        this.chatContainerObserver.observe(document.body, { 
+            childList: true,
+            subtree: false 
+        });
     },
 
     stopObservers() {
-        if (this.chatContentObserver) { this.chatContentObserver.disconnect(); this.chatContentObserver = null; }
-        if (this.chatContainerObserver) { this.chatContainerObserver.disconnect(); this.chatContainerObserver = null; }
+        if (this.chatContentObserver) { 
+            this.chatContentObserver.disconnect(); 
+            this.chatContentObserver = null; 
+        }
+        if (this.chatContainerObserver) { 
+            this.chatContainerObserver.disconnect(); 
+            this.chatContainerObserver = null; 
+        }
+        
+        // 清理所有待处理的任务
+        for (const [messageId, timeoutId] of this.pendingProcessing) {
+            clearTimeout(timeoutId);
+        }
+        this.pendingProcessing.clear();
+        this.processingMessages.clear();
     },
 
     async checkForUpdates() {
@@ -276,7 +375,7 @@ renderSettingsHtml() {
 
 // ###################################################################
 //
-//  模块 2: 输入框美化模块 (Placeholder Beautifier) - [重大修改]
+//  模块 2: 输入框美化模块 (Placeholder Beautifier) 
 //
 // ###################################################################
 const PlaceholderModule = {
@@ -769,7 +868,7 @@ textarea.placeholder = world;
 
 // ###################################################################
 //
-//  模块 3: 标语注入 (Slogan Injection) - [添加删除事件支持]
+//  模块 3: 标语注入 (Slogan Injection) 
 //
 // ###################################################################
 const SloganInjectionModule = {
@@ -901,7 +1000,7 @@ const SloganInjectionModule = {
 
 // ###################################################################
 //
-//  主程序: 初始化与UI集成 - [UI重大修改]
+//  主程序: 初始化与UI集成
 //
 // ###################################################################
 
