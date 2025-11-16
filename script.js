@@ -3,7 +3,7 @@ import { extension_settings } from '../../../extensions.js';
 
 // ===================================================================
 //
-//  小杂物集 (Misc Utilities) v1.2.0 (按需修改版)
+//  小杂物集 (Misc Utilities) v1.2.0
 //  - 模块1: 模型名称显示 (Model Display)
 //  - 模块2: 世界书输入框提示 (World Book Placeholder)
 //  - 模块3: 标语注入 (Slogan Injection)
@@ -26,7 +26,7 @@ const ModelDisplayModule = {
     // 1.0 模块内部状态和常量
     // ---------------------------------------------------------------
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.2.1', // 版本号更新
+    CURRENT_SCRIPT_VERSION: '1.2.0',
     SCRIPT_RAW_URL: 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/script.js',
     modelHistory: {},
     chatContentObserver: null,
@@ -58,22 +58,19 @@ const ModelDisplayModule = {
 
     // 1.3 设置与界面
     // ---------------------------------------------------------------
-    // [重大修改] 修复 getSettings，使其能够正确加载已保存的设置
     getSettings() {
-        // 确保主设置对象存在
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
         }
+
         const settings = extension_settings[this.name];
 
-        // 遍历默认设置，确保所有键都存在于当前设置中，实现向后兼容
         for (const key of Object.keys(this.defaultSettings)) {
             if (!Object.hasOwnProperty.call(settings, key)) {
                 settings[key] = this.defaultSettings[key];
             }
         }
 
-        // 这是关键：确保 modelNameOverrides 是一个有效的对象
         if (typeof settings.modelNameOverrides !== 'object' || settings.modelNameOverrides === null) {
             settings.modelNameOverrides = {};
         }
@@ -86,10 +83,8 @@ const ModelDisplayModule = {
         this.rerenderAllModelNames();
     },
 
-    // [重大修改] 渲染设置界面的HTML，增加名称覆盖部分
     renderSettingsHtml() {
         const settings = this.getSettings();
-        // 生成覆盖规则的HTML行
         const overridesHtml = Object.entries(settings.modelNameOverrides)
             .map(([original, custom], index) => this.renderOverrideRow(original, custom, index))
             .join('');
@@ -119,7 +114,6 @@ const ModelDisplayModule = {
         </div>`;
     },
 
-    // [新增] 渲染单条覆盖规则的HTML
     renderOverrideRow(original, custom, index) {
         return `
         <div class="form-group model-override-row" data-index="${index}">
@@ -130,33 +124,27 @@ const ModelDisplayModule = {
         </div>`;
     },
 
-    // [重大修改] 绑定设置界面的事件，增加对新UI的事件处理
     bindSettingsEvents() {
         const settings = this.getSettings();
-        // 基础设置
         $(document).on('input', '#model_display_font_size', (e) => { settings.fontSize = $(e.currentTarget).val(); this.saveSettings(); });
         $(document).on('input', '#model_display_prefix', (e) => { settings.prefix = $(e.currentTarget).val(); this.saveSettings(); });
         $(document).on('input', '#model_display_suffix', (e) => { settings.suffix = $(e.currentTarget).val(); this.saveSettings(); });
 
-        // 添加新规则
         $(document).on('click', '#add_model_override_btn', () => {
             const newIndex = $('#model_name_overrides_container .model-override-row').length;
             $('#model_name_overrides_container').append(this.renderOverrideRow('', '', newIndex));
         });
 
-        // 删除规则
         $(document).on('click', '.delete-override-btn', (e) => {
             $(e.currentTarget).closest('.model-override-row').remove();
             this.updateOverridesFromUI();
         });
 
-        // 修改规则
         $(document).on('input', '.model-override-row .text_pole', () => {
             this.updateOverridesFromUI();
         });
     },
 
-    // [新增] 从UI更新设置中的覆盖规则
     updateOverridesFromUI() {
         const newOverrides = {};
         $('.model-override-row').each(function() {
@@ -166,7 +154,6 @@ const ModelDisplayModule = {
                 newOverrides[original] = custom;
             }
         });
-        // 直接修改设置对象，然后调用保存
         this.getSettings().modelNameOverrides = newOverrides;
         this.saveSettings();
     },
