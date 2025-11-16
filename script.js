@@ -115,7 +115,7 @@ const ModelDisplayModule = {
             <div id="model_name_overrides_container">
                 ${overridesHtml}
             </div>
-            <button id="add_model_override_btn" class="menu_button fa-solid fa-plus" style="margin-top: 5px;"> 增</button>
+            <button id="add_model_override_btn" class="menu_button fa-solid fa-plus" style="margin-top: 5px;"> </button>
         </div>`;
     },
 
