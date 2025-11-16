@@ -26,7 +26,7 @@ const ModelDisplayModule = {
     // 1.0 模块内部状态和常量
     // ---------------------------------------------------------------
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.2.0', // 版本号更新
+    CURRENT_SCRIPT_VERSION: '1.2.1', // 版本号更新
     SCRIPT_RAW_URL: 'https://cdn.jsdelivr.net/gh/GlacierCifer/ST-Model-Display@main/script.js',
     modelHistory: {},
     chatContentObserver: null,
@@ -41,33 +41,44 @@ const ModelDisplayModule = {
         fontSize: '0.85em',
         prefix: '|',
         suffix: '|',
-        modelNameOverrides: {}, // 新增：模型名称覆盖规则
+        modelNameOverrides: {}, // 模型名称覆盖规则
     }),
 
     // 1.2 模块初始化入口
     // ---------------------------------------------------------------
     init() {
+        // 在初始化时，确保getSettings被调用以加载数据
         if (this.getSettings().enabled) {
             this.startObservers();
             this.restoreAllFromHistory();
         }
         this.checkForUpdates();
-        console.log('[模块-模型显示] 初始化成功。');
+        console.log('[模块-模型显示] 初始化成功，持久化逻辑已修复。');
     },
 
     // 1.3 设置与界面
     // ---------------------------------------------------------------
+    // [重大修改] 修复 getSettings，使其能够正确加载已保存的设置
     getSettings() {
+        // 确保主设置对象存在
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
         }
-        // 确保新旧设置兼容
+        const settings = extension_settings[this.name];
+
+        // 遍历默认设置，确保所有键都存在于当前设置中，实现向后兼容
         for (const key of Object.keys(this.defaultSettings)) {
-            if (!Object.hasOwnProperty.call(extension_settings[this.name], key)) {
-                extension_settings[this.name][key] = this.defaultSettings[key];
+            if (!Object.hasOwnProperty.call(settings, key)) {
+                settings[key] = this.defaultSettings[key];
             }
         }
-        return extension_settings[this.name];
+
+        // 这是关键：确保 modelNameOverrides 是一个有效的对象
+        if (typeof settings.modelNameOverrides !== 'object' || settings.modelNameOverrides === null) {
+            settings.modelNameOverrides = {};
+        }
+
+        return settings;
     },
 
     saveSettings() {
@@ -104,7 +115,7 @@ const ModelDisplayModule = {
             <div id="model_name_overrides_container">
                 ${overridesHtml}
             </div>
-            <button id="add_model_override_btn" class="menu_button fa-solid fa-plus" style="margin-top: 5px;"> 增</button>
+            <button id="add_model_override_btn" class="menu_button fa-solid fa-plus" style="margin-top: 5px;"> 添加规则</button>
         </div>`;
     },
 
@@ -155,6 +166,7 @@ const ModelDisplayModule = {
                 newOverrides[original] = custom;
             }
         });
+        // 直接修改设置对象，然后调用保存
         this.getSettings().modelNameOverrides = newOverrides;
         this.saveSettings();
     },
@@ -200,20 +212,12 @@ const ModelDisplayModule = {
         return null;
     },
 
-    // [新增] 获取最终要显示的名称（应用覆盖规则）
     getDisplayName(originalModelName) {
         if (!originalModelName) return '';
         const overrides = this.getSettings().modelNameOverrides;
-        // 完全匹配优先
         if (Object.hasOwnProperty.call(overrides, originalModelName)) {
-            return overrides[originalModelName] || originalModelName; // 如果自定义名称为空，则返回原始名称
+            return overrides[originalModelName] || originalModelName;
         }
-        // [可选扩展] 增加部分匹配逻辑
-        // for (const [key, value] of Object.entries(overrides)) {
-        //     if (originalModelName.includes(key)) {
-        //         return value || originalModelName;
-        //     }
-        // }
         return originalModelName;
     },
 
@@ -221,7 +225,7 @@ const ModelDisplayModule = {
         if (iconSvg.dataset.modelInjected === 'true') return;
 
         const settings = this.getSettings();
-        const displayName = this.getDisplayName(modelName); // [修改] 使用自定义名称
+        const displayName = this.getDisplayName(modelName);
         const fullText = `${settings.prefix}${displayName}${settings.suffix}`;
         const originalHeight = iconSvg.getBoundingClientRect().height || 22;
 
@@ -385,7 +389,7 @@ const ModelDisplayModule = {
         if (!indicator.length) return;
         indicator.text(`v${this.CURRENT_SCRIPT_VERSION}`);
         indicator.off('click.update').css('cursor', 'default').attr('title', '这是一个修改版，无法自动检查更新。');
-    },
+    }
 };
 
 // ###################################################################
