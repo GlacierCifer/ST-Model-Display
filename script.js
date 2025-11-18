@@ -940,17 +940,116 @@ function initializeCombinedExtension() {
                 <div class="inline-drawer-toggle inline-drawer-header"><b>小美化集</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
                 <div class="inline-drawer-content" style="display: none;">
                     <div class="version-row"><span class="version-indicator" id="model_display_version_indicator"></span></div>
+
+                    <!-- 模型名称显示 -->
                     <label class="checkbox_label"><input type="checkbox" id="misc_model_display_toggle" ${ModelDisplayModule.getSettings().enabled ? 'checked' : ''}><span>模型名称显示</span></label>
+                    <div id="model_display_settings_panel" class="sub-setting-container" style="${ModelDisplayModule.getSettings().enabled ? '' : 'display: none;'}">
+                        <div class="sub-setting-toggle">
+                            <b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div>
+                        </div>
+                        <div class="sub-setting-content" style="display: none;">
+                             ${ModelDisplayModule.renderSettingsHtml()}
+                        </div>
+                    </div>
+
+                    <!-- 输入框文字替换 -->
                     <label class="checkbox_label"><input type="checkbox" id="misc_placeholder_toggle" ${PlaceholderModule.getSettings().enabled ? 'checked' : ''}><span>输入框文字替换</span></label>
+                    <div id="placeholder_settings_panel" class="sub-setting-container" style="${PlaceholderModule.getSettings().enabled ? '' : 'display: none;'}">
+                        <div class="sub-setting-toggle">
+                            <b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div>
+                        </div>
+                        <div class="sub-setting-content" style="display: none;">
+                             ${PlaceholderModule.renderSettingsHtml()}
+                        </div>
+                    </div>
+
+                    <!-- 全局字体替换 -->
                     <label class="checkbox_label"><input type="checkbox" id="misc_global_font_toggle" ${GlobalFontModule.getSettings().enabled ? 'checked' : ''}><span>全局字体替换</span></label>
-                    <div id="model_display_settings_panel" style="${ModelDisplayModule.getSettings().enabled ? '' : 'display: none;'}">${ModelDisplayModule.renderSettingsHtml()}</div>
-                    <div id="placeholder_settings_panel" style="${PlaceholderModule.getSettings().enabled ? '' : 'display: none;'}">${PlaceholderModule.renderSettingsHtml()}</div>
-                    <div id="global_font_settings_panel" style="${GlobalFontModule.getSettings().enabled ? '' : 'display: none;'}">${GlobalFontModule.renderSettingsHtml()}</div>
+                    <div id="global_font_settings_panel" class="sub-setting-container" style="${GlobalFontModule.getSettings().enabled ? '' : 'display: none;'}">
+                        <div class="sub-setting-toggle">
+                            <b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div>
+                        </div>
+                        <div class="sub-setting-content" style="display: none;">
+                             ${GlobalFontModule.renderSettingsHtml()}
+                        </div>
+                    </div>
+
                 </div>
             </div>
-            <style>.version-row{display:flex;justify-content:flex-end;padding:0 5px 5px}.version-indicator{color:var(--text_color_acc);font-size:.8em}#misc_beautify_settings h3.sub-header,#misc_beautify_settings h4.sub-header{font-size:1em;margin-top:15px;margin-bottom:10px}.placeholder-panel{margin-top:10px}.placeholder-radio-group{display:flex;border:1px solid var(--border_color);border-radius:5px;overflow:hidden}.placeholder-radio-group label{flex:1;text-align:center;padding:5px 0;background-color:var(--background_bg);cursor:pointer;border-left:1px solid var(--border_color)}.placeholder-radio-group label:first-child{border-left:none}.placeholder-radio-group input[type=radio]{display:none}.placeholder-radio-group input[type=radio]:checked+span{color:var(--primary_color);font-weight:700}.placeholder-radio-group label:hover{background-color:var(--background_layer_1)}.model-override-row{display:flex;align-items:center}.model-override-row .text_pole{flex-grow:1}</style>
+            <style>
+                .version-row{display:flex;justify-content:flex-end;padding:0 5px 5px}
+                .version-indicator{color:var(--text_color_acc);font-size:.8em}
+                #misc_beautify_settings h3.sub-header,
+                #misc_beautify_settings h4.sub-header{font-size:1em;margin-top:15px;margin-bottom:10px}
+                .placeholder-panel{margin-top:10px}
+                .placeholder-radio-group{display:flex;border:1px solid var(--border_color);border-radius:5px;overflow:hidden}
+                .placeholder-radio-group label{flex:1;text-align:center;padding:5px 0;background-color:var(--background_bg);cursor:pointer;border-left:1px solid var(--border_color)}
+                .placeholder-radio-group label:first-child{border-left:none}
+                .placeholder-radio-group input[type=radio]{display:none}
+                .placeholder-radio-group input[type=radio]:checked+span{color:var(--primary_color);font-weight:700}
+                .placeholder-radio-group label:hover{background-color:var(--background_layer_1)}
+                .model-override-row{display:flex;align-items:center}
+                .model-override-row .text_pole{flex-grow:1}
+
+                /* 折叠UI样式 */
+                .sub-setting-container { margin-bottom: 10px; }
+                .sub-setting-toggle {
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    padding: 8px;
+                    background-color: var(--background_layer_1);
+                    border-radius: 5px;
+                    margin-top: 5px;
+                    cursor: pointer;
+                    border: 1px solid var(--border_color);
+                    transition: background-color 0.2s;
+                }
+                .sub-setting-toggle b {
+                    font-weight: normal;
+                }
+                .sub-setting-toggle:hover {
+                    background-color: var(--background_layer_2);
+                }
+                .sub-setting-icon {
+                    transition: transform 0.2s ease-in-out;
+                }
+                .sub-setting-icon.up {
+                    transform: rotate(180deg);
+                }
+                .sub-setting-content {
+                    padding: 15px 10px 10px 10px;
+                    border: 1px solid var(--border_color);
+                    border-top: none;
+                    border-radius: 0 0 5px 5px;
+                    background-color: var(--background_bg);
+                }
+            </style>
         `;
         $('#extensions_settings').append(combinedSettingsHtml);
+
+        $(document).on('change', '#misc_model_display_toggle', e => {
+            const en = $(e.currentTarget).is(':checked');
+            const settings = ModelDisplayModule.getSettings();
+            settings.enabled = en;
+            $('#model_display_settings_panel').toggle(en);
+            ModelDisplayModule.rerenderAllModelNames(!en);
+            if(en) ModelDisplayModule.startObservers(); else ModelDisplayModule.stopObservers();
+            script.saveSettingsDebounced();
+        });
+
+        $(document).on('change', '#misc_placeholder_toggle', e => {
+            const en = $(e.currentTarget).is(':checked');
+            const settings = PlaceholderModule.getSettings();
+            settings.enabled = en;
+            $('#placeholder_settings_panel').toggle(en);
+            if(en) PlaceholderModule.init(); else {
+                const textarea = document.getElementById(PlaceholderModule.TEXTAREA_ID);
+                if (textarea) textarea.placeholder = PlaceholderModule.resolveFallbackPlaceholder(textarea);
+                PlaceholderModule.stopPlaceholderObserver();
+            }
+            script.saveSettingsDebounced();
+        });
 
         $(document).on('change', '#misc_global_font_toggle', e => {
             const en = $(e.currentTarget).is(':checked');
@@ -958,6 +1057,11 @@ function initializeCombinedExtension() {
             settings.enabled = en;
             $('#global_font_settings_panel').toggle(en);
             GlobalFontModule.saveSettings();
+        });
+
+        $(document).on('click', '.sub-setting-toggle', function() {
+            $(this).next('.sub-setting-content').slideToggle(200);
+            $(this).find('.sub-setting-icon').toggleClass('up');
         });
 
         ModelDisplayModule.bindSettingsEvents();
