@@ -674,7 +674,7 @@ const GlobalFontModule = {
                     </select>
                     <button id="global_font_delete_btn" class="menu_button fa-solid fa-trash-can" title="删除当前选中的字体" style="flex-shrink: 0;"></button>
                 </div>
-                <div id="faux_bold_section"><hr><h4 class="sub-header" style="margin-top: 10px;">字体描边</h4><label class="checkbox_label"><input type="checkbox" id="faux_bold_toggle" ${s.fauxBold.enabled ? 'checked' : ''}><span>启用描边效果</span></label><div id="faux_bold_controls" class="form-group" style="padding-left: 5px; ${s.fauxBold.enabled ? '' : 'display: none;'}"><label for="faux_bold_input">描边量 (正/负):</label><input type="number" id="faux_bold_input" class="text_pole" value="${s.fauxBold.width.toFixed(1)}" step="0.1" placeholder="0.4 或 -0.3"></div></div>
+                <div id="faux_bold_section"><hr><h4 class="sub-header" style="margin-top: 10px;">字体描边</h4><label class="checkbox_label"><input type="checkbox" id="faux_bold_toggle" ${s.fauxBold.enabled ? 'checked' : ''}><span>启用描边效果</span></label><div id="faux_bold_controls" class="form-group" style="padding-left: 5px; ${s.fauxBold.enabled ? '' : 'display: none;'}"><label for="faux_bold_input">描边量 (正/负):</label><input type="number" id="faux_bold_input" class="text_pole" value="${s.fauxBold.width.toFixed(1)}" step="0.1" placeholder="正值加粗，负值变细。例：0.4"></div></div>
                 <div id="add_new_font_section" style="margin-top: 15px; border: 1px solid var(--border_color); padding: 10px; border-radius: 5px;">
                      <h4 class="sub-header" style="margin-top: 0;">添加新字体</h4>
                      <div class="form-group" style="border-bottom: 1px dashed var(--border_color); padding-bottom: 10px; margin-bottom: 10px;">
