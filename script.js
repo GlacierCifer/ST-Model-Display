@@ -65,7 +65,6 @@ const ModelDisplayModule = {
 
         return `
         <div id="model_display_options_wrapper">
-            <hr>
             <h3 class="sub-header">模型名称显示</h3>
             <div class="form-group">
                 <label for="model_display_font_size">字体大小:</label>
@@ -82,6 +81,7 @@ const ModelDisplayModule = {
             <h4 class="sub-header" style="margin-top: 15px;">模型名称覆盖</h4>
             <div id="model_name_overrides_container">${overridesHtml}</div>
             <button id="add_model_override_btn" class="menu_button fa-solid fa-plus" style="margin-top: 5px;"> </button>
+            <hr>
         </div>`;
     },
     renderOverrideRow(original, custom, index) {
@@ -376,7 +376,7 @@ const PlaceholderModule = {
     renderSettingsHtml() {
         const s = this.getSettings();
         return `
-            <div id="placeholder_options_wrapper"><hr><h3 class="sub-header">输入框文字替换</h3><p class="sub-label">选择提示来源，对应配置项会动态显示。</p>
+            <div id="placeholder_options_wrapper"><h3 class="sub-header">输入框文字替换</h3><p class="sub-label">选择提示来源，对应配置项会动态显示。</p>
                 <div class="form-group placeholder-radio-group">
                     <label><input type="radio" name="placeholder_source_radio" value="custom" ${s.placeholderSource === 'custom' ? 'checked' : ''}><span>自定义</span></label>
                     <label><input type="radio" name="placeholder_source_radio" value="auto" ${s.placeholderSource === 'auto' ? 'checked' : ''}><span>AI摘录</span></label>
@@ -385,7 +385,7 @@ const PlaceholderModule = {
                 <div id="placeholder_panel_custom" class="placeholder-panel" style="${s.placeholderSource === 'custom' ? '' : 'display: none;'}"><input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${s.customPlaceholder}"></div>
                 <div id="placeholder_panel_auto" class="placeholder-panel" style="${s.placeholderSource === 'auto' ? '' : 'display: none;'}"><p class="sub-label">注入的提示词（别忘记限制回复字数）：</p><textarea id="slogan_prompt_input" class="text_pole" rows="4">${s.sloganPrompt}</textarea></div>
                 <div id="placeholder_panel_worldbook" class="placeholder-panel" style="${s.placeholderSource === 'worldbook' ? '' : 'display: none;'}"><p class="sub-label">当前角色世界书中的“输入框”条目：</p><textarea id="worldbook_placeholder_input" class="text_pole" rows="3" placeholder="正在从世界书加载..."></textarea></div>
-            </div>`;
+            <hr></div>`;
     },
     bindSettingsEvents() {
         $(document).on('change', 'input[name="placeholder_source_radio"]', e => {
@@ -702,7 +702,6 @@ const GlobalFontModule = {
 
         return `
             <div id="global_font_options_wrapper">
-                <hr>
                 <h3 class="sub-header">全局字体管理</h3>
                 <div class="form-group" style="display: flex; align-items: center; gap: 10px;">
                     <select id="global_font_select" class="text_pole" style="flex-grow: 1;">
@@ -734,6 +733,7 @@ const GlobalFontModule = {
                         <button id="global_font_add_btn" class="menu_button" style="width: 100%;">添加到列表并应用</button>
                     </div>
                 </div>
+                <hr>
             </div>`;
     },
 
@@ -870,7 +870,6 @@ const FontObserverModule = {
     observer: null,
     docContext: null,
     isRunning: false,
-    // [修复-其三] 目标列表保持不变
     targets: [
         '#curEditTextarea',
         '.swal2-textarea',
