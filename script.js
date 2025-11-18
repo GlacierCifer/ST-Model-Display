@@ -536,7 +536,7 @@ const GlobalFontModule = {
     FAUX_BOLD_STYLE_ID: 'faux_bold_style_tag',
     docContext: null,
     pendingFileData: null,
-    _cssNameUpdateTimeout: null, 
+    _cssNameUpdateTimeout: null,
 
     defaultSettings: Object.freeze({
         enabled: false,
@@ -562,7 +562,7 @@ const GlobalFontModule = {
             this.docContext = document;
         }
         this.applyAllStyles();
-        console.log('[模块-全局字体] 初始化成功。');
+        console.log('[模块-全局字体] v5.3.0 初始化成功。');
     },
 
     getSettings() {
@@ -587,29 +587,63 @@ const GlobalFontModule = {
         }
     },
 
+    /**
+     * [核心修改] 统一的样式应用入口。
+     * 现在它会分开处理字体家族和字体粗细，使粗细能对默认字体生效。
+     */
     applyAllStyles() {
         if (!this.docContext) this.init();
+
         const settings = this.getSettings();
+
+        // 如果整个模块被禁用，执行完整清理并退出。
+        if (!settings.enabled) {
+            this.cleanup();
+            return;
+        }
+
+        // --- 如果模块已启用，则分步处理 ---
+
+        // 1. 处理字体家族（Font Family）
         const fontName = this.getActiveFontName();
-        if (settings.enabled && fontName) {
+        if (fontName) {
+            // 如果选择了自定义字体，应用样式并启动观察者。
             this.applyFontStyles(fontName);
-            this.applyFauxBoldStyles();
             if (typeof FontObserverModule !== 'undefined') FontObserverModule.start();
         } else {
-            this.cleanup();
+            // 如果选择的是“恢复主题默认字体”，则只清理字体家族相关的样式。
+            const fontStyleEl = this.docContext.getElementById(this.STYLE_ID);
+            if (fontStyleEl) fontStyleEl.textContent = '';
+            this.docContext.documentElement.style.removeProperty('--mainFontFamily');
+            this.docContext.documentElement.style.removeProperty('--monoFontFamily');
+            if (typeof FontObserverModule !== 'undefined') FontObserverModule.stop();
         }
+
+        // 2. 处理字体粗细/描边（Faux Bold）
+        // 这一步独立于字体选择执行，因此能对默认字体生效。
+        this.applyFauxBoldStyles();
     },
 
+    /**
+     * 完整清理函数，当模块总开关关闭时调用。
+     */
     cleanup() {
         if (!this.docContext) return;
+
+        // 清理字体家族样式
         const fontStyleEl = this.docContext.getElementById(this.STYLE_ID);
         if (fontStyleEl) fontStyleEl.textContent = '';
-        const fauxBoldStyleEl = this.docContext.getElementById(this.FAUX_BOLD_STYLE_ID);
-        if (fauxBoldStyleEl) fauxBoldStyleEl.textContent = '';
         this.docContext.documentElement.style.removeProperty('--mainFontFamily');
         this.docContext.documentElement.style.removeProperty('--monoFontFamily');
+
+        // 清理字体粗细/描边样式
+        const fauxBoldStyleEl = this.docContext.getElementById(this.FAUX_BOLD_STYLE_ID);
+        if (fauxBoldStyleEl) fauxBoldStyleEl.remove();
+
+        // 停止观察者
         if (typeof FontObserverModule !== 'undefined') FontObserverModule.stop();
-        console.log('[模块-全局字体] 已清理所有样式，恢复主题默认。');
+
+        console.log('[模块-全局字体] 已禁用并清理所有样式，恢复主题默认。');
     },
 
     applyFontStyles(fontName) {
@@ -630,17 +664,20 @@ const GlobalFontModule = {
     applyFauxBoldStyles() {
         if (!this.docContext) return;
         let styleEl = this.docContext.getElementById(this.FAUX_BOLD_STYLE_ID);
-        const { enabled, fauxBold } = this.getSettings();
-        if (!enabled || !fauxBold?.enabled || !fauxBold.width || fauxBold.width == 0) {
+        const settings = this.getSettings();
+
+        // 这里的判断条件决定了描边效果是否应用。它只关心模块总开关和自己的开关。
+        if (!settings.enabled || !settings.fauxBold?.enabled || !settings.fauxBold.width || settings.fauxBold.width == 0) {
             if (styleEl) styleEl.remove();
             return;
         }
+
         if (!styleEl) {
             styleEl = this.docContext.createElement('style');
             styleEl.id = this.FAUX_BOLD_STYLE_ID;
             this.docContext.body.appendChild(styleEl);
         }
-        const width = fauxBold.width;
+        const width = settings.fauxBold.width;
         let styleRule = '';
         if (width > 0) {
             styleRule = `-webkit-text-stroke: ${width}px currentColor !important; text-shadow: none !important;`;
@@ -674,7 +711,7 @@ const GlobalFontModule = {
                     </select>
                     <button id="global_font_delete_btn" class="menu_button fa-solid fa-trash-can" title="删除当前选中的字体" style="flex-shrink: 0;"></button>
                 </div>
-                <div id="faux_bold_section"><hr><h4 class="sub-header" style="margin-top: 10px;">字体描边</h4><label class="checkbox_label"><input type="checkbox" id="faux_bold_toggle" ${s.fauxBold.enabled ? 'checked' : ''}><span>启用描边效果</span></label><div id="faux_bold_controls" class="form-group" style="padding-left: 5px; ${s.fauxBold.enabled ? '' : 'display: none;'}"><label for="faux_bold_input">描边量 (正/负):</label><input type="number" id="faux_bold_input" class="text_pole" value="${s.fauxBold.width.toFixed(1)}" step="0.1" placeholder="正值加粗，负值变细。例：0.4"></div></div>
+                <div id="faux_bold_section"><hr><h4 class="sub-header" style="margin-top: 10px;">字体粗细 (全局生效)</h4><label class="checkbox_label"><input type="checkbox" id="faux_bold_toggle" ${s.fauxBold.enabled ? 'checked' : ''}><span>启用描边效果</span></label><div id="faux_bold_controls" class="form-group" style="padding-left: 5px; ${s.fauxBold.enabled ? '' : 'display: none;'}"><label for="faux_bold_input">描边量 (正/负):</label><input type="number" id="faux_bold_input" class="text_pole" value="${s.fauxBold.width.toFixed(1)}" step="0.1" placeholder="正值加粗，负值变细，例：0.4"></div></div>
                 <div id="add_new_font_section" style="margin-top: 15px; border: 1px solid var(--border_color); padding: 10px; border-radius: 5px;">
                      <h4 class="sub-header" style="margin-top: 0;">添加新字体</h4>
                      <div class="form-group" style="border-bottom: 1px dashed var(--border_color); padding-bottom: 10px; margin-bottom: 10px;">
@@ -772,12 +809,10 @@ const GlobalFontModule = {
         $(document).on('input.globalFont', '#new_font_css_rules', e => {
             clearTimeout(this._cssNameUpdateTimeout);
             const cssText = $(e.currentTarget).val().trim();
-
             if (cssText) {
                 this.pendingFileData = null;
                 $('#font_file_display').text('未选择文件');
                 $('#import_font_file_input').val('');
-
                 this._cssNameUpdateTimeout = setTimeout(() => {
                     const extractedName = this.extractFontName(cssText);
                     if (extractedName) {
@@ -791,14 +826,13 @@ const GlobalFontModule = {
             let rules = '';
             let name = $('#new_font_name_input').val().trim();
             const cssContent = $('#new_font_css_rules').val().trim();
-
-            if (this.pendingFileData) { 
+            if (this.pendingFileData) {
                 if (!name) { return alert('请为导入的字体文件提供一个名称。'); }
                 const { dataUrl, format } = this.pendingFileData;
                 rules = `@font-face {\n    font-family: "${name}";\n    src: url(${dataUrl}) format("${format}");\n}`;
-            } else if (cssContent) { 
+            } else if (cssContent) {
                 rules = cssContent;
-                if (!name) { 
+                if (!name) {
                     const extractedName = this.extractFontName(rules);
                     if (extractedName) {
                         name = extractedName;
@@ -811,18 +845,14 @@ const GlobalFontModule = {
             } else {
                 return alert('请选择一个文件，或粘贴有效的CSS规则。');
             }
-
             const newFont = { id: Date.now().toString(), name, rules };
             const settings = this.getSettings();
-
             if (settings.storedFonts.some(font => font.name === newFont.name)) {
                 return alert(`名为 "${newFont.name}" 的字体已存在！`);
             }
-
             settings.storedFonts.push(newFont);
             settings.activeFontId = newFont.id;
             this.saveSettings(true);
-
             this.pendingFileData = null;
             $('#font_file_display').text('未选择文件');
             $('#new_font_css_rules').val('');
