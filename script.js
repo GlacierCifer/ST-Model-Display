@@ -297,7 +297,7 @@ const PlaceholderModule = {
         customPlaceholder: '',
         placeholderSource: 'custom',
         sloganPrompt: ['元素内仅包含当前角色极具个人风格的语录，格式模仿座右铭、网络用语、另类名言、爱语、吐槽等形式，具备黑色幽默感，最长 15 个汉字。', '语录不要重复，也不要额外解释。'].join('\n'),
-        customFontSize: '0.85em',
+        customFontSize: '0.5em',
         enableCustomTextColor: false,
         customTextColor: '#999999FF',
         customItalic: false,
