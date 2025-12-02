@@ -17,7 +17,7 @@ import { extension_settings } from '../../../extensions.js';
 // ###################################################################
 const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.3.2', // Version updated
+    CURRENT_SCRIPT_VERSION: '1.3.0',
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
@@ -282,164 +282,35 @@ const ModelDisplayModule = {
     }
 };
 
-// ===================================================================
+// ###################################################################
+//
 //  模块 2: 输入框美化模块 (Placeholder Beautifier)
-// ===================================================================
+//
+// ###################################################################
 const PlaceholderModule = {
     name: 'worldbook_placeholder',
     iframeWindow: null,
-    styleTag: null,
-    STYLE_TAG_ID: 'placeholder-override-style',
+    placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
-    isInitialized: false,
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
         placeholderSource: 'custom',
-        sloganPrompt: ['元素内仅包含当前角色极具个人风格的语录，格式模仿座右铭、网络用语、另类名言、爱语、吐槽等形式，具备黑色幽默感，最长 15 个汉字。', '语录不要重复，也不要额外解释。'].join('\n'),
-        customFontSize: '0.5em',
-        enableCustomTextColor: false,
-        customTextColor: '#999999FF',
-        customItalic: false,
-        // customAlign: 'center',
+        sloganPrompt: ['元素内仅包含当前角色极具个人风格的语录，格式模仿座右铭、网络用语、另类名言、爱语、吐槽等形式，具备黑色幽默感，最长 15 个汉字。','语录不要重复，也不要额外解释。'].join('\n'),
     }),
     currentSlogan: null,
     isSwitchingCharacter: false,
     worldbookUpdateDebounce: null,
-
     init() {
-        if (!this.getSettings().enabled) {
-            console.log('[模块-输入框] 插件未启用，跳过初始化。');
-            return;
-        }
-
-        this.waitForDependencies().then(() => {
-            if (this.isInitialized) return;
-
+        if (!this.getSettings().enabled) return;
+        this.waitForIframe().then(() => {
             if (script.eventSource && script.event_types) {
                 script.eventSource.on(script.event_types.CHAT_CHANGED, this.onCharacterSwitch.bind(this));
-            } else {
-                console.error('[模块-输入框] 致命错误：无法访问 script.eventSource。');
-                return;
-            }
-
-            this.isInitialized = true;
+            } else { console.error('[模块-输入框] 致命错误：无法访问 script.eventSource。'); }
             this.applyLogic();
-            console.log('[模块-输入框] 初始化成功 (已应用最终修复方案，默认居中)。');
-        }).catch(error => {
-            console.error('[模块-输入框] 初始化失败:', error);
+            console.log('[模块-输入框] 初始化成功。');
         });
     },
-
-    waitForDependencies() {
-        return new Promise((resolve, reject) => {
-            const maxRetries = 20;
-            let retries = 0;
-            const check = () => {
-                const iframe = document.querySelector('iframe');
-                if (iframe?.contentWindow && script.eventSource && script.event_types) {
-                    this.iframeWindow = iframe.contentWindow;
-                    resolve();
-                } else if (retries < maxRetries) {
-                    retries++;
-                    setTimeout(check, 500);
-                } else {
-                    reject(new Error("依赖项 (iframe, eventSource) 超时未加载。"));
-                }
-            };
-            check();
-        });
-    },
-
-    updateInjectedStyle(content) {
-        if (!this.styleTag) {
-            this.styleTag = document.createElement('style');
-            this.styleTag.id = this.STYLE_TAG_ID;
-            document.head.appendChild(this.styleTag);
-        }
-        const sanitizedContent = content.replace(/"/g, "'");
-        const settings = this.getSettings();
-
-        const transparencyRule = `#send_textarea::placeholder { color: transparent !important; }`;
-
-        const positionCss = `left: 50% !important; top: 50% !important; transform: translate(-50%, -50%) !important; right: auto !important;`;
-
-        const finalTextColor = settings.enableCustomTextColor ? settings.customTextColor : 'var(--text_color_acc, #999)';
-
-        const pseudoElementRule = `#nonQRFormItems:has(#send_textarea:placeholder-shown)::before {
-            /* 内容与颜色 */
-            content: "${sanitizedContent}" !important;
-            color: ${finalTextColor} !important; /* 使用动态颜色 */
-
-            /* 尺寸与字体 */
-            font-size: ${settings.customFontSize} !important;
-            font-style: ${settings.customItalic ? 'italic' : 'normal'} !important;
-            font-weight: normal !important;
-            font-family: var(--mainFontFamily);
-            line-height: 1 !important;
-
-            /* 定位与居中 */
-            position: absolute !important;
-            ${positionCss}
-
-            /* 其他防御性样式 */
-            pointer-events: none !important;
-            z-index: 10 !important;
-            white-space: nowrap !important;
-            text-overflow: ellipsis !important;
-            overflow: hidden !important;
-            max-width: calc(100% - 30px) !important;
-            background: none !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            border: none !important;
-        }`;
-
-        this.styleTag.textContent = `${transparencyRule}\n${pseudoElementRule}`;
-    },
-
-    clearInjectedStyle() {
-        if (!this.styleTag) {
-            this.styleTag = document.getElementById(this.STYLE_TAG_ID);
-        }
-        if (this.styleTag) {
-            this.styleTag.textContent = '';
-        }
-    },
-
-    async applyLogic() {
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        if (!textarea) return;
-
-        const settings = this.getSettings();
-        let customText = '';
-
-        if (settings.enabled) {
-            const mode = settings.placeholderSource;
-            try {
-                switch (mode) {
-                    case 'custom': customText = settings.customPlaceholder.trim(); break;
-                    case 'auto':
-                        customText = await this.tryExtractSloganFromLatestMessage() || this.getCurrentAutoSlogan();
-                        break;
-                    case 'worldbook':
-                        const defaultPlaceholder = this.resolveFallbackPlaceholder(textarea);
-                        const wbText = await this.applyWorldBookLogic(textarea);
-                        if (wbText && wbText !== defaultPlaceholder) customText = wbText.trim();
-                        break;
-                }
-            } catch (error) { console.error('[模块-输入框] 获取自定义提示时出错:', error); }
-        }
-
-        if (customText) {
-            this.updateInjectedStyle(customText);
-            textarea.placeholder = '.';
-        } else {
-            this.clearInjectedStyle();
-            textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
-        }
-    },
-
     getSettings() {
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
@@ -450,31 +321,46 @@ const PlaceholderModule = {
         }
         return settings;
     },
-
     setAutoSlogan(text) {
         const slogan = (text || '').trim();
+        if (!slogan) return;
         this.currentSlogan = slogan;
+        if (this.getSettings().enabled && this.getSettings().placeholderSource === 'auto') this.applyLogic();
     },
-
     getCurrentAutoSlogan() { return this.currentSlogan || ''; },
-
+    async applyLogic() {
+        if (!this.getSettings().enabled) return;
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (!textarea) return;
+        const settings = this.getSettings();
+        const mode = settings.placeholderSource;
+        const custom = settings.customPlaceholder.trim();
+        const defaultText = this.resolveFallbackPlaceholder(textarea);
+        this.stopPlaceholderObserver();
+        if (mode === 'custom') {
+            textarea.placeholder = custom || defaultText;
+            if (custom) this.startPlaceholderObserver();
+        } else if (mode === 'auto') {
+            textarea.placeholder = this.getCurrentAutoSlogan() || defaultText;
+        } else if (mode === 'worldbook') {
+            const wbText = await this.applyWorldBookLogic(null, { setPlaceholder: false });
+            textarea.placeholder = (wbText && wbText !== defaultText) ? wbText : defaultText;
+        }
+    },
     async onCharacterSwitch() {
         if (this.isSwitchingCharacter) return;
         this.isSwitchingCharacter = true;
         try {
+            const textarea = document.getElementById(this.TEXTAREA_ID);
+            if (textarea) textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
             this.currentSlogan = null;
             await new Promise(r => setTimeout(r, 300));
             const settings = this.getSettings();
-            if (settings.enabled) {
-                if (settings.placeholderSource === 'worldbook') await this.loadWorldBookContentToPanel();
-                if (settings.placeholderSource === 'auto') {
-                    await this.tryExtractSloganFromLatestMessage();
-                }
-            }
+            if (settings.placeholderSource === 'worldbook') await this.loadWorldBookContentToPanel();
+            if (settings.placeholderSource === 'auto') await this.tryExtractSloganFromLatestMessage();
             await this.applyLogic();
         } finally { this.isSwitchingCharacter = false; }
     },
-
     async tryExtractSloganFromLatestMessage() {
         try {
             const messages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
@@ -482,144 +368,63 @@ const PlaceholderModule = {
                 const sloganEl = messages[i].querySelector('.mes_text div[hidden]');
                 if (sloganEl) {
                     const slogan = sloganEl.textContent.trim().replace(/^✦❋/, '').trim();
-                    if (slogan) {
-                        this.setAutoSlogan(slogan);
-                        return slogan;
-                    }
+                    if (slogan) { this.setAutoSlogan(slogan); return; }
                 }
             }
         } catch (error) { console.error('[Placeholder] 检测最新消息时出错:', error); }
-        this.setAutoSlogan(null);
-        return null;
     },
-
     renderSettingsHtml() {
         const s = this.getSettings();
         return `
-            <div id="placeholder_options_wrapper">
-                <h3 class="sub-header">输入框文字替换</h3>
-                <p class="sub-label">选择提示来源，对应配置项会动态显示。</p>
+            <div id="placeholder_options_wrapper"><h3 class="sub-header">输入框文字替换</h3><p class="sub-label">选择提示来源，对应配置项会动态显示。</p>
                 <div class="form-group placeholder-radio-group">
                     <label><input type="radio" name="placeholder_source_radio" value="custom" ${s.placeholderSource === 'custom' ? 'checked' : ''}><span>自定义</span></label>
                     <label><input type="radio" name="placeholder_source_radio" value="auto" ${s.placeholderSource === 'auto' ? 'checked' : ''}><span>AI摘录</span></label>
                     <label><input type="radio" name="placeholder_source_radio" value="worldbook" ${s.placeholderSource === 'worldbook' ? 'checked' : ''}><span>世界书</span></label>
                 </div>
-                <div id="placeholder_panel_custom" class="placeholder-panel" style="${s.placeholderSource === 'custom' ? '' : 'display: none;'}"_><input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${s.customPlaceholder}"></div>
+                <div id="placeholder_panel_custom" class="placeholder-panel" style="${s.placeholderSource === 'custom' ? '' : 'display: none;'}"><input type="text" id="custom_placeholder_input" class="text_pole" placeholder="输入自定义全局提示..." value="${s.customPlaceholder}"></div>
                 <div id="placeholder_panel_auto" class="placeholder-panel" style="${s.placeholderSource === 'auto' ? '' : 'display: none;'}"><p class="sub-label">注入的提示词（别忘记限制回复字数）：</p><textarea id="slogan_prompt_input" class="text_pole" rows="4">${s.sloganPrompt}</textarea></div>
                 <div id="placeholder_panel_worldbook" class="placeholder-panel" style="${s.placeholderSource === 'worldbook' ? '' : 'display: none;'}"><p class="sub-label">当前角色世界书中的“输入框”条目：</p><textarea id="worldbook_placeholder_input" class="text_pole" rows="3" placeholder="正在从世界书加载..."></textarea></div>
-                <hr>
-
-                <div id="placeholder_style_options" style="margin-top: 15px;">
-                    <h4 class="sub-header">占位符样式</h4>
-                    <div class="form-group">
-                        <label for="placeholder_font_size">字体大小:</label>
-                        <input type="text" id="placeholder_font_size" class="text_pole" placeholder="例如: 0.85em, 14px" value="${s.customFontSize}">
-                    </div>
-                    <div class="form-group">
-                        <label class="checkbox_label">
-                            <input type="checkbox" id="placeholder_enable_custom_color_toggle" ${s.enableCustomTextColor ? 'checked' : ''}>
-                            <span>启用自定义颜色</span>
-                        </label>
-                        <div id="placeholder_custom_color_panel" style="margin-top: 10px; ${s.enableCustomTextColor ? '' : 'display: none;'}">
-                            <toolcool-color-picker id="placeholder_color_picker" color="${s.customTextColor}"></toolcool-color-picker>
-                        </div>
-                    </div>
-                    <label class="checkbox_label">
-                        <input type="checkbox" id="placeholder_italic_toggle" ${s.customItalic ? 'checked' : ''}>
-                        <span>斜体</span>
-                    </label>
-                </div>
-                <hr>
-            </div>`;
+            <hr></div>`;
     },
-
     bindSettingsEvents() {
-        const handleSettingsChange = () => {
+        $(document).on('change', 'input[name="placeholder_source_radio"]', e => {
+            const selected = $(e.currentTarget).val();
+            this.getSettings().placeholderSource = selected;
+            script.saveSettingsDebounced();
+            $('.placeholder-panel').hide();
+            $(`#placeholder_panel_${selected}`).show();
+            if (selected === 'worldbook') this.loadWorldBookContentToPanel();
+            this.applyLogic();
+        });
+        $(document).on('input', '#custom_placeholder_input', e => {
+            this.getSettings().customPlaceholder = $(e.currentTarget).val();
             script.saveSettingsDebounced();
             this.applyLogic();
-        };
-
-        $(document).off('.placeholder');
-
-        $(document).on('change.placeholder', 'input[name="placeholder_source_radio"]', e => {
-            this.getSettings().placeholderSource = $(e.currentTarget).val();
-            $('.placeholder-panel').hide();
-            $(`#placeholder_panel_${this.getSettings().placeholderSource}`).show();
-            if (this.getSettings().placeholderSource === 'worldbook') this.loadWorldBookContentToPanel();
-            handleSettingsChange();
         });
-
-        $(document).on('input.placeholder', '#custom_placeholder_input', e => {
-            this.getSettings().customPlaceholder = $(e.currentTarget).val();
-            handleSettingsChange();
-        });
-
-        $(document).on('input.placeholder', '#slogan_prompt_input', e => {
+        $(document).on('input', '#slogan_prompt_input', e => {
             this.getSettings().sloganPrompt = $(e.currentTarget).val();
-            script.saveSettingsDebounced(); // Slogan prompt change doesn't need to trigger a full applyLogic, just save
+            script.saveSettingsDebounced();
         });
-
-        $(document).on('input.placeholder', '#worldbook_placeholder_input', e => {
+        $(document).on('input', '#worldbook_placeholder_input', e => {
             const content = $(e.currentTarget).val();
             clearTimeout(this.worldbookUpdateDebounce);
             this.worldbookUpdateDebounce = setTimeout(() => {
-                this.updateWorldBookFromPanel(content).then(() => {
-                    if (this.getSettings().placeholderSource === 'worldbook') {
-                        handleSettingsChange();
-                    }
-                });
+                this.updateWorldBookFromPanel(content).then(() => { if (this.getSettings().placeholderSource === 'worldbook') this.applyLogic(); });
             }, 500);
         });
-
-        $(document).on('input.placeholder', '#placeholder_font_size', e => {
-            this.getSettings().customFontSize = $(e.currentTarget).val();
-            handleSettingsChange();
-        });
-
-        $(document).on('change.placeholder', '#placeholder_italic_toggle', e => {
-            this.getSettings().customItalic = $(e.currentTarget).is(':checked');
-            handleSettingsChange();
-        });
-
-        $(document).on('change.placeholder', '#placeholder_enable_custom_color_toggle', e => {
-            const enabled = $(e.currentTarget).is(':checked');
-            this.getSettings().enableCustomTextColor = enabled;
-            const customColorPanel = $('#placeholder_custom_color_panel');
-            customColorPanel.toggle(enabled);
-
-            const colorPicker = document.getElementById('placeholder_color_picker');
-            if (colorPicker && enabled) { 
-                colorPicker.color = this.getSettings().customTextColor;
-            }
-            handleSettingsChange();
-        });
-
-        $(document).on('input.placeholder', '#placeholder_color_picker', e => {
-            const newColor = e.detail?.hexa;
-            if (!newColor || !/^#([0-9A-F]{3,4}|[0-9A-F]{6}|[0-9A-F]{8})$/i.test(newColor)) {
-                console.warn('[PlaceholderModule] Color picker returned invalid hex color:', newColor);
-                return;
-            }
-
-            this.getSettings().customTextColor = newColor;
-            handleSettingsChange();
-        });
     },
-
     async loadWorldBookContentToPanel() {
-        if (!this.iframeWindow) await this.waitForDependencies();
-        const textarea = $(`#worldbook_placeholder_input`);
+        const textarea = $('#worldbook_placeholder_input');
         if (!textarea.length) return;
         textarea.val('').attr('placeholder', '正在读取世界书...');
         try {
-            const content = await this.applyWorldBookLogic(document.getElementById(this.TEXTAREA_ID));
-            const defaultPlaceholder = this.resolveFallbackPlaceholder(document.getElementById(this.TEXTAREA_ID));
-            if (content && content !== defaultPlaceholder) {
+            const content = await this.applyWorldBookLogic(null, { setPlaceholder: false });
+            if (content && content !== this.resolveFallbackPlaceholder(document.getElementById(this.TEXTAREA_ID))) {
                 textarea.val(content).attr('placeholder', '修改此处可同步更新世界书条目...');
             } else { textarea.val('').attr('placeholder', '未找到“输入框”条目，输入内容可创建。'); }
         } catch (error) { textarea.attr('placeholder', '加载失败，请检查控制台。'); }
     },
-
     async updateWorldBookFromPanel(content) {
         if (!this.iframeWindow) return;
         try {
@@ -635,38 +440,42 @@ const PlaceholderModule = {
             });
         } catch (error) { console.error('[Placeholder] 更新世界书时发生错误:', error); }
     },
-
     resolveFallbackPlaceholder(textarea) { return textarea?.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助'; },
-
-    async applyWorldBookLogic(textarea) {
-        let finalPlaceholder = this.resolveFallbackPlaceholder(textarea || document.getElementById(this.TEXTAREA_ID));
-        if (!this.iframeWindow) return finalPlaceholder;
-
+    startPlaceholderObserver() {
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        const settings = this.getSettings();
+        const expected = settings.customPlaceholder.trim();
+        if (!textarea || settings.placeholderSource !== 'custom' || !expected) return;
+        this.stopPlaceholderObserver();
+        this.placeholderObserver = new MutationObserver(() => { if (textarea.placeholder !== expected) textarea.placeholder = expected; });
+        this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
+    },
+    stopPlaceholderObserver() { if (this.placeholderObserver) this.placeholderObserver.disconnect(); this.placeholderObserver = null; },
+    async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
+        let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
         try {
-            const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
-            if (lorebookName) {
-                const entries = await this.iframeWindow.getLorebookEntries(lorebookName);
-                const targetEntry = entries.find(e => e.comment === '输入框');
-                if (targetEntry?.content.trim()) finalPlaceholder = targetEntry.content;
+            if (this.iframeWindow?.getCurrentCharPrimaryLorebook) {
+                const lorebookName = await this.iframeWindow.getCurrentCharPrimaryLorebook();
+                if (lorebookName) {
+                    const entries = await this.iframeWindow.getLorebookEntries(lorebookName);
+                    const targetEntry = entries.find(e => e.comment === '输入框');
+                    if (targetEntry?.content.trim()) finalPlaceholder = targetEntry.content;
+                }
             }
         } catch (error) { console.error('[模块-输入框] 读取世界书时出错:', error); }
+        if (setPlaceholder && textarea) textarea.placeholder = finalPlaceholder;
         return finalPlaceholder;
     },
-
-    onToggle(enabled) {
-        const settings = this.getSettings();
-        settings.enabled = enabled;
-        script.saveSettingsDebounced();
-        if (enabled) {
-            this.isInitialized = false;
-            $(document).off('.placeholder'); // Unbind old events before re-initializing
-            this.init(); // init will bind events and call applyLogic
-        } else {
-            this.applyLogic(); // If disabled, call applyLogic to clear styles and restore native placeholder
-            this.isInitialized = false;
-            $(document).off('.placeholder'); // Disconnect events when disabled
-        }
-    }
+    waitForIframe() {
+        return new Promise(resolve => {
+            const check = () => {
+                const iframe = document.querySelector('iframe');
+                if (iframe?.contentWindow) { this.iframeWindow = iframe.contentWindow; resolve(); }
+                else { setTimeout(check, 100); }
+            };
+            check();
+        });
+    },
 };
 
 // ###################################################################
@@ -753,7 +562,7 @@ const GlobalFontModule = {
             this.docContext = document;
         }
         this.applyAllStyles();
-        console.log('[模块-全局字体] 初始化成功。');
+        console.log('[模块-全局字体] v5.3.0 初始化成功。');
     },
 
     getSettings() {
@@ -771,28 +580,38 @@ const GlobalFontModule = {
         script.saveSettingsDebounced();
         this.applyAllStyles();
         if (rerender) {
-            const panel = $('#global_font_settings_panel .sub-setting-content');
+            const panel = $('#global_font_settings_panel');
             if (panel.is(':visible')) {
                 panel.html(this.renderSettingsHtml());
             }
         }
     },
 
+    /**
+     * [核心修改] 统一的样式应用入口。
+     * 现在它会分开处理字体家族和字体粗细，使粗细能对默认字体生效。
+     */
     applyAllStyles() {
         if (!this.docContext) this.init();
 
         const settings = this.getSettings();
 
+        // 如果整个模块被禁用，执行完整清理并退出。
         if (!settings.enabled) {
             this.cleanup();
             return;
         }
 
+        // --- 如果模块已启用，则分步处理 ---
+
+        // 1. 处理字体家族（Font Family）
         const fontName = this.getActiveFontName();
         if (fontName) {
+            // 如果选择了自定义字体，应用样式并启动观察者。
             this.applyFontStyles(fontName);
             if (typeof FontObserverModule !== 'undefined') FontObserverModule.start();
         } else {
+            // 如果选择的是“恢复主题默认字体”，则只清理字体家族相关的样式。
             const fontStyleEl = this.docContext.getElementById(this.STYLE_ID);
             if (fontStyleEl) fontStyleEl.textContent = '';
             this.docContext.documentElement.style.removeProperty('--mainFontFamily');
@@ -800,20 +619,28 @@ const GlobalFontModule = {
             if (typeof FontObserverModule !== 'undefined') FontObserverModule.stop();
         }
 
+        // 2. 处理字体粗细/描边（Faux Bold）
+        // 这一步独立于字体选择执行，因此能对默认字体生效。
         this.applyFauxBoldStyles();
     },
 
+    /**
+     * 完整清理函数，当模块总开关关闭时调用。
+     */
     cleanup() {
         if (!this.docContext) return;
 
+        // 清理字体家族样式
         const fontStyleEl = this.docContext.getElementById(this.STYLE_ID);
         if (fontStyleEl) fontStyleEl.textContent = '';
         this.docContext.documentElement.style.removeProperty('--mainFontFamily');
         this.docContext.documentElement.style.removeProperty('--monoFontFamily');
 
+        // 清理字体粗细/描边样式
         const fauxBoldStyleEl = this.docContext.getElementById(this.FAUX_BOLD_STYLE_ID);
         if (fauxBoldStyleEl) fauxBoldStyleEl.remove();
 
+        // 停止观察者
         if (typeof FontObserverModule !== 'undefined') FontObserverModule.stop();
 
         console.log('[模块-全局字体] 已禁用并清理所有样式，恢复主题默认。');
@@ -839,6 +666,7 @@ const GlobalFontModule = {
         let styleEl = this.docContext.getElementById(this.FAUX_BOLD_STYLE_ID);
         const settings = this.getSettings();
 
+        // 这里的判断条件决定了描边效果是否应用。它只关心模块总开关和自己的开关。
         if (!settings.enabled || !settings.fauxBold?.enabled || !settings.fauxBold.width || settings.fauxBold.width == 0) {
             if (styleEl) styleEl.remove();
             return;
@@ -1064,7 +892,7 @@ const FontObserverModule = {
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length) {
                     mutation.addedNodes.forEach(node => {
-                        if (node.nodeType === 1) {
+                        if (node.nodeType === 1) { 
                             this.checkAndApply(node);
                         }
                     });
@@ -1214,13 +1042,10 @@ function initializeCombinedExtension() {
             const settings = PlaceholderModule.getSettings();
             settings.enabled = en;
             $('#placeholder_settings_panel').toggle(en);
-
-            if(en) {
-                PlaceholderModule.isInitialized = false;
-                PlaceholderModule.init();
-            } else {
-                PlaceholderModule.isInitialized = false; // Disable and clean up
-                PlaceholderModule.clearInjectedStyle();
+            if(en) PlaceholderModule.init(); else {
+                const textarea = document.getElementById(PlaceholderModule.TEXTAREA_ID);
+                if (textarea) textarea.placeholder = PlaceholderModule.resolveFallbackPlaceholder(textarea);
+                PlaceholderModule.stopPlaceholderObserver();
             }
             script.saveSettingsDebounced();
         });
@@ -1259,7 +1084,7 @@ function initializeCombinedExtension() {
 $(document).ready(() => {
     setTimeout(() => {
         const interval = setInterval(() => {
-            if ($('#extensions_settings').length && typeof script !== 'undefined' && script.settings) {
+            if ($('#extensions_settings').length && typeof script !== 'undefined') {
                 clearInterval(interval);
                 initializeCombinedExtension();
             }
