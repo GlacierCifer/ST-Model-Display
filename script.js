@@ -292,6 +292,8 @@ const PlaceholderModule = {
     iframeWindow: null,
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
+    DYNAMIC_PLACEHOLDER_STYLE_ID: 'misc_dynamic_placeholder_style',
+    _hasNativeTextualBefore: null, 
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -302,7 +304,10 @@ const PlaceholderModule = {
     isSwitchingCharacter: false,
     worldbookUpdateDebounce: null,
     init() {
-        if (!this.getSettings().enabled) return;
+        if (!this.getSettings().enabled) {
+            this.cleanupDynamicStyles();
+            return;
+        }
         this.waitForIframe().then(() => {
             if (script.eventSource && script.event_types) {
                 script.eventSource.on(script.event_types.CHAT_CHANGED, this.onCharacterSwitch.bind(this));
@@ -310,6 +315,18 @@ const PlaceholderModule = {
             this.applyLogic();
             console.log('[模块-输入框] 初始化成功。');
         });
+    },
+    cleanupDynamicStyles() {
+        const styleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
+        if (styleEl) {
+            styleEl.remove();
+        }
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (textarea) {
+            textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
+        }
+        this.stopPlaceholderObserver();
+        this._hasNativeTextualBefore = null;
     },
     getSettings() {
         if (!extension_settings[this.name]) {
@@ -329,28 +346,120 @@ const PlaceholderModule = {
     },
     getCurrentAutoSlogan() { return this.currentSlogan || ''; },
     async applyLogic() {
-        if (!this.getSettings().enabled) return;
+        if (!this.getSettings().enabled) {
+            this.cleanupDynamicStyles();
+            return;
+        }
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
+
         const settings = this.getSettings();
         const mode = settings.placeholderSource;
-        const custom = settings.customPlaceholder.trim();
+        let effectivePlaceholderText = '';
         const defaultText = this.resolveFallbackPlaceholder(textarea);
+
+        if (textarea.value.trim().length > 0) {
+            this.cleanupDynamicStyles();
+            return;
+        }
+
         this.stopPlaceholderObserver();
+
         if (mode === 'custom') {
-            textarea.placeholder = custom || defaultText;
-            if (custom) this.startPlaceholderObserver();
+            effectivePlaceholderText = settings.customPlaceholder.trim();
         } else if (mode === 'auto') {
-            textarea.placeholder = this.getCurrentAutoSlogan() || defaultText;
+            effectivePlaceholderText = this.getCurrentAutoSlogan();
         } else if (mode === 'worldbook') {
-            const wbText = await this.applyWorldBookLogic(null, { setPlaceholder: false });
-            textarea.placeholder = (wbText && wbText !== defaultText) ? wbText : defaultText;
+            effectivePlaceholderText = await this.applyWorldBookLogic(null, { setPlaceholder: false });
+        }
+
+        if (!effectivePlaceholderText) {
+            this.cleanupDynamicStyles();
+            textarea.placeholder = defaultText; 
+            return;
+        }
+
+        const nonQRFormItems = document.getElementById('nonQRFormItems');
+        this._hasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea); 
+
+        this.handlePlaceholderDisplay(effectivePlaceholderText, textarea);
+
+        if (mode === 'custom' && effectivePlaceholderText) {
+            this.startPlaceholderObserver();
         }
     },
+
+    handlePlaceholderDisplay(placeholderText, textarea) {
+        let styleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = this.DYNAMIC_PLACEHOLDER_STYLE_ID;
+            document.head.appendChild(styleEl);
+        }
+
+        const contentEscaped = CSS.escape(placeholderText); 
+
+        let cssRules = '';
+
+        if (this._hasNativeTextualBefore) {
+            textarea.placeholder = ''; 
+            cssRules = `
+                #${this.TEXTAREA_ID}::placeholder {
+                    color: transparent !important; 
+                    text-shadow: none !important; 
+                }
+                #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before {
+                    content: "${contentEscaped}" !important;
+                }
+            `;
+        } else {
+            textarea.placeholder = placeholderText; 
+            cssRules = `
+                #${this.TEXTAREA_ID}::placeholder {
+                    color: var(--text_color_acc, #989898) !important;
+                    text-shadow: none !important;
+                }
+                #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before,
+                #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::after {
+                    content: none !important;
+                    display: none !important; /* 隐藏元素 */
+                }
+            `;
+        }
+        styleEl.textContent = cssRules;
+    },
+
+    detectNativeTextualBefore(parentElement, textarea) {
+        if (!parentElement || !textarea) return false;
+
+        const tempStyleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
+        let originalStyleText = '';
+        if (tempStyleEl) {
+            originalStyleText = tempStyleEl.textContent;
+            tempStyleEl.textContent = ''; 
+        }
+
+        const beforeStyle = window.getComputedStyle(parentElement, '::before');
+        const content = beforeStyle.getPropertyValue('content');
+
+        if (tempStyleEl && originalStyleText) {
+            tempStyleEl.textContent = originalStyleText;
+        }
+
+        if (content && content !== 'none' && content !== '""') {
+            const actualContent = content.slice(1, -1); 
+            return actualContent.trim().length > 0;
+        }
+        return false;
+    },
+
     async onCharacterSwitch() {
         if (this.isSwitchingCharacter) return;
         this.isSwitchingCharacter = true;
         try {
+            this.cleanupDynamicStyles();
+            this._hasNativeTextualBefore = null; 
+
             const textarea = document.getElementById(this.TEXTAREA_ID);
             if (textarea) textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
             this.currentSlogan = null;
@@ -358,7 +467,7 @@ const PlaceholderModule = {
             const settings = this.getSettings();
             if (settings.placeholderSource === 'worldbook') await this.loadWorldBookContentToPanel();
             if (settings.placeholderSource === 'auto') await this.tryExtractSloganFromLatestMessage();
-            await this.applyLogic();
+            await this.applyLogic(); 
         } finally { this.isSwitchingCharacter = false; }
     },
     async tryExtractSloganFromLatestMessage() {
@@ -372,6 +481,7 @@ const PlaceholderModule = {
                 }
             }
         } catch (error) { console.error('[Placeholder] 检测最新消息时出错:', error); }
+        return null; // 如果没有找到slogan，返回null
     },
     renderSettingsHtml() {
         const s = this.getSettings();
@@ -395,12 +505,12 @@ const PlaceholderModule = {
             $('.placeholder-panel').hide();
             $(`#placeholder_panel_${selected}`).show();
             if (selected === 'worldbook') this.loadWorldBookContentToPanel();
-            this.applyLogic();
+            this.applyLogic(); 
         });
         $(document).on('input', '#custom_placeholder_input', e => {
             this.getSettings().customPlaceholder = $(e.currentTarget).val();
             script.saveSettingsDebounced();
-            this.applyLogic();
+            this.applyLogic(); 
         });
         $(document).on('input', '#slogan_prompt_input', e => {
             this.getSettings().sloganPrompt = $(e.currentTarget).val();
@@ -447,8 +557,24 @@ const PlaceholderModule = {
         const expected = settings.customPlaceholder.trim();
         if (!textarea || settings.placeholderSource !== 'custom' || !expected) return;
         this.stopPlaceholderObserver();
-        this.placeholderObserver = new MutationObserver(() => { if (textarea.placeholder !== expected) textarea.placeholder = expected; });
-        this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder'] });
+        this.placeholderObserver = new MutationObserver(() => {
+            if (textarea.value.trim().length > 0) {
+                this.cleanupDynamicStyles();
+                return;
+            }
+
+            const nonQRFormItems = document.getElementById('nonQRFormItems');
+            const currentHasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea);
+
+            const currentEffectiveText = currentHasNativeTextualBefore ?
+                                       (window.getComputedStyle(nonQRFormItems, '::before').getPropertyValue('content').slice(1, -1)) :
+                                       textarea.placeholder;
+
+            if (currentEffectiveText !== expected) {
+                this.applyLogic();
+            }
+        });
+        this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder', 'value'] });
     },
     stopPlaceholderObserver() { if (this.placeholderObserver) this.placeholderObserver.disconnect(); this.placeholderObserver = null; },
     async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
