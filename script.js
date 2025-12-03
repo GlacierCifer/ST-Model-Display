@@ -293,7 +293,7 @@ const PlaceholderModule = {
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
     DYNAMIC_PLACEHOLDER_STYLE_ID: 'misc_dynamic_placeholder_style',
-    _hasNativeTextualBefore: null,
+    _hasNativeTextualBefore: null, // false 或者 { exists: true, fontSize: '...', fontFamily: '...', color: '...' }
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -380,7 +380,7 @@ const PlaceholderModule = {
         }
 
         const nonQRFormItems = document.getElementById('nonQRFormItems');
-        this._hasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea);
+        this._hasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea); 
 
         this.handlePlaceholderDisplay(effectivePlaceholderText, textarea);
 
@@ -401,7 +401,7 @@ const PlaceholderModule = {
 
         let cssRules = '';
 
-        if (this._hasNativeTextualBefore) {
+        if (this._hasNativeTextualBefore && this._hasNativeTextualBefore.exists) {
             textarea.placeholder = '';
             cssRules = `
                 #${this.TEXTAREA_ID}::placeholder {
@@ -410,8 +410,9 @@ const PlaceholderModule = {
                 }
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before {
                     content: "${contentEscaped}" !important;
-                    font-size: inherit !important; 
-                    font-family: inherit !important; 
+                    font-size: ${this._hasNativeTextualBefore.fontSize} !important;
+                    font-family: ${this._hasNativeTextualBefore.fontFamily} !important;
+                    color: var(--text_color_acc, #989898) !important;
                 }
             `;
         } else {
@@ -452,7 +453,14 @@ const PlaceholderModule = {
 
         if (content && content !== 'none' && content !== '""') {
             const actualContent = content.slice(1, -1);
-            return actualContent.trim().length > 0;
+            if (actualContent.trim().length > 0) {
+                return {
+                    exists: true,
+                    fontSize: beforeStyle.getPropertyValue('font-size'),
+                    fontFamily: beforeStyle.getPropertyValue('font-family'),
+                    color: beforeStyle.getPropertyValue('color')
+                };
+            }
         }
         return false;
     },
@@ -481,7 +489,7 @@ const PlaceholderModule = {
                 const sloganEl = messages[i].querySelector('.mes_text div[hidden]');
                 if (sloganEl) {
                     const slogan = sloganEl.textContent.trim().replace(/^✦❋/, '').trim();
-                    if (slogan) { this.setAutoSlogan(slogan); return slogan; } // Return slogan if found
+                    if (slogan) { this.setAutoSlogan(slogan); return slogan; }
                 }
             }
         } catch (error) { console.error('[Placeholder] 检测最新消息时出错:', error); }
@@ -570,9 +578,12 @@ const PlaceholderModule = {
             const nonQRFormItems = document.getElementById('nonQRFormItems');
             const currentHasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea);
 
-            const currentEffectiveText = currentHasNativeTextualBefore ?
-                                       (window.getComputedStyle(nonQRFormItems, '::before').getPropertyValue('content').slice(1, -1)) :
-                                       textarea.placeholder;
+            let currentEffectiveText = '';
+            if (currentHasNativeTextualBefore && currentHasNativeTextualBefore.exists) {
+                currentEffectiveText = window.getComputedStyle(nonQRFormItems, '::before').getPropertyValue('content').slice(1, -1);
+            } else {
+                currentEffectiveText = textarea.placeholder;
+            }
 
             if (currentEffectiveText !== expected) {
                 this.applyLogic();
