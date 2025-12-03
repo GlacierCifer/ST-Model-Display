@@ -293,7 +293,7 @@ const PlaceholderModule = {
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
     DYNAMIC_PLACEHOLDER_STYLE_ID: 'misc_dynamic_placeholder_style',
-    _nativeBeforeDetails: null, // 将存储一个包含检测结果和所有捕获到的CSS属性的对象或 null
+    _nativeBeforeDetails: null,
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -380,7 +380,7 @@ const PlaceholderModule = {
         }
 
         const nonQRFormItems = document.getElementById('nonQRFormItems');
-        this._nativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems, textarea);
+        this._nativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems); 
 
         this.handlePlaceholderDisplay(effectivePlaceholderText, textarea);
 
@@ -402,12 +402,12 @@ const PlaceholderModule = {
         let cssRules = '';
 
         if (this._nativeBeforeDetails && this._nativeBeforeDetails.exists) {
-            textarea.placeholder = '';
+            textarea.placeholder = ''; 
 
             let capturedCssProps = '';
-            for (const prop in this._nativeBeforeDetails.capturedStyles) {
-                if (prop === 'content' || prop === 'display') continue;
-                capturedCssProps += `${prop}: ${this._nativeBeforeDetails.capturedStyles[prop]} !important;\n`;
+            for (const prop in this._nativeBeforeDetails.originalStyles) {
+                if (prop === 'content') continue; 
+                capturedCssProps += `${prop}: ${this._nativeBeforeDetails.originalStyles[prop]} !important;\n`;
             }
 
             cssRules = `
@@ -437,52 +437,55 @@ const PlaceholderModule = {
         styleEl.textContent = cssRules;
     },
 
-    detectNativeTextualBefore(parentElement, textarea) {
-        if (!parentElement || !textarea) return null;
+    detectNativeTextualBefore(parentElement) {
+        if (!parentElement) return null;
 
-        const tempStyleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
-        let originalStyleText = '';
-        if (tempStyleEl) {
-            originalStyleText = tempStyleEl.textContent;
-            tempStyleEl.textContent = '';
-        }
+        const targetSelector = `#nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before`;
+        const originalStyles = {};
+        let foundContent = '';
+        let foundMeaningfulRule = false;
 
-        const beforeStyle = window.getComputedStyle(parentElement, '::before');
-        const content = beforeStyle.getPropertyValue('content');
-        const capturedStyles = {};
-
-        if (tempStyleEl && originalStyleText) {
-            tempStyleEl.textContent = originalStyleText;
-        }
-
-        if (content && content !== 'none' && content !== '""') {
-            const actualContent = content.slice(1, -1);
-            if (actualContent.trim().length > 0) {
-                const propsToCapture = [
-                    'color', 'font-size', 'font-family', 'font-weight', 'font-style', 'text-align',
-                    'text-shadow', 'position', 'top', 'bottom', 'left', 'right', 'transform',
-                    'white-space', 'text-overflow', 'overflow', 'max-width', 'min-width',
-                    'height', 'line-height', 'padding-top', 'padding-right', 'padding-bottom',
-                    'padding-left', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
-                    'z-index', 'pointer-events', 'display' // Display是关键，如果是none，则不应该应用
-                ];
-
-                for (const prop of propsToCapture) {
-                    const value = beforeStyle.getPropertyValue(prop);
-                    if (value && value !== 'initial' && !(prop === 'display' && value === 'none')) {
-                        if (prop === 'transform' && value === 'none') continue;
-                        capturedStyles[prop] = value;
+        for (const sheet of document.styleSheets) {
+            try {
+                for (const rule of sheet.cssRules) {
+                    if (rule instanceof CSSStyleRule) {
+                        if (rule.selectorText.includes('::before') && rule.selectorText.includes('nonQRFormItems')) {
+                            for (const prop in rule.style) {
+                                if (Number.isInteger(parseInt(prop))) {
+                                    const propName = rule.style[prop];
+                                    const propValue = rule.style.getPropertyValue(propName);
+                                    if (propValue) {
+                                        if (propName === 'content') {
+                                            foundContent = propValue.replace(/^["']|["']$/g, ''); 
+                                            if (foundContent && foundContent.trim() !== '' && foundContent.trim().toLowerCase() !== 'none') {
+                                                foundMeaningfulRule = true;
+                                            }
+                                        } else {
+                                            originalStyles[propName] = propValue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+            } catch (e) {
+                // console.warn('Could not read stylesheet:', sheet.href, e);
+            }
+        }
 
+        if (foundMeaningfulRule) {
+            const beforeComputedStyle = window.getComputedStyle(parentElement, '::before');
+            if (beforeComputedStyle.getPropertyValue('display') !== 'none') {
                 return {
                     exists: true,
-                    content: actualContent,
-                    capturedStyles: capturedStyles
+                    content: foundContent, 
+                    originalStyles: originalStyles
                 };
             }
         }
-        return { exists: false, content: '', capturedStyles: {} };
+
+        return { exists: false, content: '', originalStyles: {} };
     },
 
     async onCharacterSwitch() {
@@ -596,7 +599,7 @@ const PlaceholderModule = {
             }
 
             const nonQRFormItems = document.getElementById('nonQRFormItems');
-            const currentNativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems, textarea);
+            const currentNativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems);
 
             let currentEffectiveText = '';
             if (currentNativeBeforeDetails && currentNativeBeforeDetails.exists) {
@@ -604,13 +607,12 @@ const PlaceholderModule = {
                 if (styleEl && styleEl.textContent.includes('content: "')) {
                      const match = styleEl.textContent.match(/content:\s*"([^"]*)"/);
                      if (match && match[1]) {
-                         currentEffectiveText = CSS.unescape(match[1]); // unescape the content
+                         currentEffectiveText = CSS.unescape(match[1]);
                      }
                 }
             } else {
                 currentEffectiveText = textarea.placeholder;
             }
-
 
             if (currentEffectiveText !== expected) {
                 this.applyLogic();
