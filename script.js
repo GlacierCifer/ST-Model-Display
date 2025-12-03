@@ -293,7 +293,7 @@ const PlaceholderModule = {
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
     DYNAMIC_PLACEHOLDER_STYLE_ID: 'misc_dynamic_placeholder_style',
-    _hasNativeTextualBefore: null, 
+    _nativeBeforeDetails: null, // 将存储一个包含检测结果和所有捕获到的CSS属性的对象或 null
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -326,7 +326,7 @@ const PlaceholderModule = {
             textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
         }
         this.stopPlaceholderObserver();
-        this._hasNativeTextualBefore = null;
+        this._nativeBeforeDetails = null;
     },
     getSettings() {
         if (!extension_settings[this.name]) {
@@ -375,12 +375,12 @@ const PlaceholderModule = {
 
         if (!effectivePlaceholderText) {
             this.cleanupDynamicStyles();
-            textarea.placeholder = defaultText; 
+            textarea.placeholder = defaultText;
             return;
         }
 
         const nonQRFormItems = document.getElementById('nonQRFormItems');
-        this._hasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea); 
+        this._nativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems, textarea);
 
         this.handlePlaceholderDisplay(effectivePlaceholderText, textarea);
 
@@ -397,23 +397,31 @@ const PlaceholderModule = {
             document.head.appendChild(styleEl);
         }
 
-        const contentEscaped = CSS.escape(placeholderText); 
+        const contentEscaped = CSS.escape(placeholderText);
 
         let cssRules = '';
 
-        if (this._hasNativeTextualBefore) {
-            textarea.placeholder = ''; 
+        if (this._nativeBeforeDetails && this._nativeBeforeDetails.exists) {
+            textarea.placeholder = '';
+
+            let capturedCssProps = '';
+            for (const prop in this._nativeBeforeDetails.capturedStyles) {
+                if (prop === 'content' || prop === 'display') continue;
+                capturedCssProps += `${prop}: ${this._nativeBeforeDetails.capturedStyles[prop]} !important;\n`;
+            }
+
             cssRules = `
                 #${this.TEXTAREA_ID}::placeholder {
-                    color: transparent !important; 
-                    text-shadow: none !important; 
+                    color: transparent !important;
+                    text-shadow: none !important;
                 }
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before {
                     content: "${contentEscaped}" !important;
+                    ${capturedCssProps}
                 }
             `;
         } else {
-            textarea.placeholder = placeholderText; 
+            textarea.placeholder = placeholderText;
             cssRules = `
                 #${this.TEXTAREA_ID}::placeholder {
                     color: var(--text_color_acc, #989898) !important;
@@ -422,7 +430,7 @@ const PlaceholderModule = {
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before,
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::after {
                     content: none !important;
-                    display: none !important; /* 隐藏元素 */
+                    display: none !important;
                 }
             `;
         }
@@ -430,27 +438,51 @@ const PlaceholderModule = {
     },
 
     detectNativeTextualBefore(parentElement, textarea) {
-        if (!parentElement || !textarea) return false;
+        if (!parentElement || !textarea) return null;
 
         const tempStyleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
         let originalStyleText = '';
         if (tempStyleEl) {
             originalStyleText = tempStyleEl.textContent;
-            tempStyleEl.textContent = ''; 
+            tempStyleEl.textContent = '';
         }
 
         const beforeStyle = window.getComputedStyle(parentElement, '::before');
         const content = beforeStyle.getPropertyValue('content');
+        const capturedStyles = {};
 
         if (tempStyleEl && originalStyleText) {
             tempStyleEl.textContent = originalStyleText;
         }
 
         if (content && content !== 'none' && content !== '""') {
-            const actualContent = content.slice(1, -1); 
-            return actualContent.trim().length > 0;
+            const actualContent = content.slice(1, -1);
+            if (actualContent.trim().length > 0) {
+                const propsToCapture = [
+                    'color', 'font-size', 'font-family', 'font-weight', 'font-style', 'text-align',
+                    'text-shadow', 'position', 'top', 'bottom', 'left', 'right', 'transform',
+                    'white-space', 'text-overflow', 'overflow', 'max-width', 'min-width',
+                    'height', 'line-height', 'padding-top', 'padding-right', 'padding-bottom',
+                    'padding-left', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
+                    'z-index', 'pointer-events', 'display' // Display是关键，如果是none，则不应该应用
+                ];
+
+                for (const prop of propsToCapture) {
+                    const value = beforeStyle.getPropertyValue(prop);
+                    if (value && value !== 'initial' && !(prop === 'display' && value === 'none')) {
+                        if (prop === 'transform' && value === 'none') continue;
+                        capturedStyles[prop] = value;
+                    }
+                }
+
+                return {
+                    exists: true,
+                    content: actualContent,
+                    capturedStyles: capturedStyles
+                };
+            }
         }
-        return false;
+        return { exists: false, content: '', capturedStyles: {} };
     },
 
     async onCharacterSwitch() {
@@ -458,7 +490,7 @@ const PlaceholderModule = {
         this.isSwitchingCharacter = true;
         try {
             this.cleanupDynamicStyles();
-            this._hasNativeTextualBefore = null; 
+            this._nativeBeforeDetails = null;
 
             const textarea = document.getElementById(this.TEXTAREA_ID);
             if (textarea) textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
@@ -467,7 +499,7 @@ const PlaceholderModule = {
             const settings = this.getSettings();
             if (settings.placeholderSource === 'worldbook') await this.loadWorldBookContentToPanel();
             if (settings.placeholderSource === 'auto') await this.tryExtractSloganFromLatestMessage();
-            await this.applyLogic(); 
+            await this.applyLogic();
         } finally { this.isSwitchingCharacter = false; }
     },
     async tryExtractSloganFromLatestMessage() {
@@ -481,7 +513,7 @@ const PlaceholderModule = {
                 }
             }
         } catch (error) { console.error('[Placeholder] 检测最新消息时出错:', error); }
-        return null; // 如果没有找到slogan，返回null
+        return null;
     },
     renderSettingsHtml() {
         const s = this.getSettings();
@@ -505,12 +537,12 @@ const PlaceholderModule = {
             $('.placeholder-panel').hide();
             $(`#placeholder_panel_${selected}`).show();
             if (selected === 'worldbook') this.loadWorldBookContentToPanel();
-            this.applyLogic(); 
+            this.applyLogic();
         });
         $(document).on('input', '#custom_placeholder_input', e => {
             this.getSettings().customPlaceholder = $(e.currentTarget).val();
             script.saveSettingsDebounced();
-            this.applyLogic(); 
+            this.applyLogic();
         });
         $(document).on('input', '#slogan_prompt_input', e => {
             this.getSettings().sloganPrompt = $(e.currentTarget).val();
@@ -564,11 +596,21 @@ const PlaceholderModule = {
             }
 
             const nonQRFormItems = document.getElementById('nonQRFormItems');
-            const currentHasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea);
+            const currentNativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems, textarea);
 
-            const currentEffectiveText = currentHasNativeTextualBefore ?
-                                       (window.getComputedStyle(nonQRFormItems, '::before').getPropertyValue('content').slice(1, -1)) :
-                                       textarea.placeholder;
+            let currentEffectiveText = '';
+            if (currentNativeBeforeDetails && currentNativeBeforeDetails.exists) {
+                const styleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
+                if (styleEl && styleEl.textContent.includes('content: "')) {
+                     const match = styleEl.textContent.match(/content:\s*"([^"]*)"/);
+                     if (match && match[1]) {
+                         currentEffectiveText = CSS.unescape(match[1]); // unescape the content
+                     }
+                }
+            } else {
+                currentEffectiveText = textarea.placeholder;
+            }
+
 
             if (currentEffectiveText !== expected) {
                 this.applyLogic();
