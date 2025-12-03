@@ -293,7 +293,7 @@ const PlaceholderModule = {
     placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
     DYNAMIC_PLACEHOLDER_STYLE_ID: 'misc_dynamic_placeholder_style',
-    _nativeBeforeDetails: null,
+    _hasNativeTextualBefore: null,
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -326,7 +326,7 @@ const PlaceholderModule = {
             textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
         }
         this.stopPlaceholderObserver();
-        this._nativeBeforeDetails = null;
+        this._hasNativeTextualBefore = null;
     },
     getSettings() {
         if (!extension_settings[this.name]) {
@@ -380,7 +380,7 @@ const PlaceholderModule = {
         }
 
         const nonQRFormItems = document.getElementById('nonQRFormItems');
-        this._nativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems); 
+        this._hasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea);
 
         this.handlePlaceholderDisplay(effectivePlaceholderText, textarea);
 
@@ -401,15 +401,8 @@ const PlaceholderModule = {
 
         let cssRules = '';
 
-        if (this._nativeBeforeDetails && this._nativeBeforeDetails.exists) {
-            textarea.placeholder = ''; 
-
-            let capturedCssProps = '';
-            for (const prop in this._nativeBeforeDetails.originalStyles) {
-                if (prop === 'content') continue; 
-                capturedCssProps += `${prop}: ${this._nativeBeforeDetails.originalStyles[prop]} !important;\n`;
-            }
-
+        if (this._hasNativeTextualBefore) {
+            textarea.placeholder = '';
             cssRules = `
                 #${this.TEXTAREA_ID}::placeholder {
                     color: transparent !important;
@@ -417,7 +410,8 @@ const PlaceholderModule = {
                 }
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before {
                     content: "${contentEscaped}" !important;
-                    ${capturedCssProps}
+                    font-size: inherit !important; 
+                    font-family: inherit !important; 
                 }
             `;
         } else {
@@ -426,6 +420,8 @@ const PlaceholderModule = {
                 #${this.TEXTAREA_ID}::placeholder {
                     color: var(--text_color_acc, #989898) !important;
                     text-shadow: none !important;
+                    font-size: inherit !important; 
+                    font-family: inherit !important; 
                 }
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before,
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::after {
@@ -437,55 +433,28 @@ const PlaceholderModule = {
         styleEl.textContent = cssRules;
     },
 
-    detectNativeTextualBefore(parentElement) {
-        if (!parentElement) return null;
+    detectNativeTextualBefore(parentElement, textarea) {
+        if (!parentElement || !textarea) return false;
 
-        const targetSelector = `#nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before`;
-        const originalStyles = {};
-        let foundContent = '';
-        let foundMeaningfulRule = false;
-
-        for (const sheet of document.styleSheets) {
-            try {
-                for (const rule of sheet.cssRules) {
-                    if (rule instanceof CSSStyleRule) {
-                        if (rule.selectorText.includes('::before') && rule.selectorText.includes('nonQRFormItems')) {
-                            for (const prop in rule.style) {
-                                if (Number.isInteger(parseInt(prop))) {
-                                    const propName = rule.style[prop];
-                                    const propValue = rule.style.getPropertyValue(propName);
-                                    if (propValue) {
-                                        if (propName === 'content') {
-                                            foundContent = propValue.replace(/^["']|["']$/g, ''); 
-                                            if (foundContent && foundContent.trim() !== '' && foundContent.trim().toLowerCase() !== 'none') {
-                                                foundMeaningfulRule = true;
-                                            }
-                                        } else {
-                                            originalStyles[propName] = propValue;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e) {
-                // console.warn('Could not read stylesheet:', sheet.href, e);
-            }
+        const tempStyleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
+        let originalStyleText = '';
+        if (tempStyleEl) {
+            originalStyleText = tempStyleEl.textContent;
+            tempStyleEl.textContent = '';
         }
 
-        if (foundMeaningfulRule) {
-            const beforeComputedStyle = window.getComputedStyle(parentElement, '::before');
-            if (beforeComputedStyle.getPropertyValue('display') !== 'none') {
-                return {
-                    exists: true,
-                    content: foundContent, 
-                    originalStyles: originalStyles
-                };
-            }
+        const beforeStyle = window.getComputedStyle(parentElement, '::before');
+        const content = beforeStyle.getPropertyValue('content');
+
+        if (tempStyleEl && originalStyleText) {
+            tempStyleEl.textContent = originalStyleText;
         }
 
-        return { exists: false, content: '', originalStyles: {} };
+        if (content && content !== 'none' && content !== '""') {
+            const actualContent = content.slice(1, -1);
+            return actualContent.trim().length > 0;
+        }
+        return false;
     },
 
     async onCharacterSwitch() {
@@ -493,7 +462,7 @@ const PlaceholderModule = {
         this.isSwitchingCharacter = true;
         try {
             this.cleanupDynamicStyles();
-            this._nativeBeforeDetails = null;
+            this._hasNativeTextualBefore = null;
 
             const textarea = document.getElementById(this.TEXTAREA_ID);
             if (textarea) textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
@@ -512,7 +481,7 @@ const PlaceholderModule = {
                 const sloganEl = messages[i].querySelector('.mes_text div[hidden]');
                 if (sloganEl) {
                     const slogan = sloganEl.textContent.trim().replace(/^✦❋/, '').trim();
-                    if (slogan) { this.setAutoSlogan(slogan); return; }
+                    if (slogan) { this.setAutoSlogan(slogan); return slogan; } // Return slogan if found
                 }
             }
         } catch (error) { console.error('[Placeholder] 检测最新消息时出错:', error); }
@@ -599,20 +568,11 @@ const PlaceholderModule = {
             }
 
             const nonQRFormItems = document.getElementById('nonQRFormItems');
-            const currentNativeBeforeDetails = this.detectNativeTextualBefore(nonQRFormItems);
+            const currentHasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea);
 
-            let currentEffectiveText = '';
-            if (currentNativeBeforeDetails && currentNativeBeforeDetails.exists) {
-                const styleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
-                if (styleEl && styleEl.textContent.includes('content: "')) {
-                     const match = styleEl.textContent.match(/content:\s*"([^"]*)"/);
-                     if (match && match[1]) {
-                         currentEffectiveText = CSS.unescape(match[1]);
-                     }
-                }
-            } else {
-                currentEffectiveText = textarea.placeholder;
-            }
+            const currentEffectiveText = currentHasNativeTextualBefore ?
+                                       (window.getComputedStyle(nonQRFormItems, '::before').getPropertyValue('content').slice(1, -1)) :
+                                       textarea.placeholder;
 
             if (currentEffectiveText !== expected) {
                 this.applyLogic();
