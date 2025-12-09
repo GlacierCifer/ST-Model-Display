@@ -290,10 +290,11 @@ const ModelDisplayModule = {
 const PlaceholderModule = {
     name: 'worldbook_placeholder',
     iframeWindow: null,
-    placeholderObserver: null,
     TEXTAREA_ID: 'send_textarea',
-    DYNAMIC_PLACEHOLDER_STYLE_ID: 'misc_dynamic_placeholder_style',
-    _hasNativeTextualBefore: null, // false 或者 { exists: true, fontSize: '...', fontFamily: '...', color: '...' }
+    _modifiedRuleState: {
+        rule: null,
+        originalContent: '',
+    },
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -303,9 +304,10 @@ const PlaceholderModule = {
     currentSlogan: null,
     isSwitchingCharacter: false,
     worldbookUpdateDebounce: null,
+
     init() {
         if (!this.getSettings().enabled) {
-            this.cleanupDynamicStyles();
+            this.cleanup();
             return;
         }
         this.waitForIframe().then(() => {
@@ -316,18 +318,23 @@ const PlaceholderModule = {
             console.log('[模块-输入框] 初始化成功。');
         });
     },
-    cleanupDynamicStyles() {
-        const styleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
-        if (styleEl) {
-            styleEl.remove();
+
+    cleanup() {
+        if (this._modifiedRuleState.rule) {
+            try {
+                this._modifiedRuleState.rule.style.setProperty('content', this._modifiedRuleState.originalContent);
+            } catch (e) {
+                // Ignore errors during cleanup
+            }
         }
+        this._modifiedRuleState = { rule: null, originalContent: '' };
+
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (textarea) {
             textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
         }
-        this.stopPlaceholderObserver();
-        this._hasNativeTextualBefore = null;
     },
+
     getSettings() {
         if (!extension_settings[this.name]) {
             extension_settings[this.name] = { ...this.defaultSettings };
@@ -345,132 +352,79 @@ const PlaceholderModule = {
         if (this.getSettings().enabled && this.getSettings().placeholderSource === 'auto') this.applyLogic();
     },
     getCurrentAutoSlogan() { return this.currentSlogan || ''; },
+
     async applyLogic() {
-        if (!this.getSettings().enabled) {
-            this.cleanupDynamicStyles();
-            return;
-        }
+        this.cleanup();
+
+        if (!this.getSettings().enabled) return;
+
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
+
+        if (textarea.value.trim().length > 0) {
+            return;
+        }
 
         const settings = this.getSettings();
         const mode = settings.placeholderSource;
         let effectivePlaceholderText = '';
-        const defaultText = this.resolveFallbackPlaceholder(textarea);
-
-        if (textarea.value.trim().length > 0) {
-            this.cleanupDynamicStyles();
-            return;
-        }
-
-        this.stopPlaceholderObserver();
 
         if (mode === 'custom') {
             effectivePlaceholderText = settings.customPlaceholder.trim();
         } else if (mode === 'auto') {
             effectivePlaceholderText = this.getCurrentAutoSlogan();
         } else if (mode === 'worldbook') {
-            effectivePlaceholderText = await this.applyWorldBookLogic(null, { setPlaceholder: false });
+            effectivePlaceholderText = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
         }
 
         if (!effectivePlaceholderText) {
-            this.cleanupDynamicStyles();
-            textarea.placeholder = defaultText;
+            textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
             return;
         }
 
-        const nonQRFormItems = document.getElementById('nonQRFormItems');
-        this._hasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea); 
-
         this.handlePlaceholderDisplay(effectivePlaceholderText, textarea);
-
-        if (mode === 'custom' && effectivePlaceholderText) {
-            this.startPlaceholderObserver();
-        }
     },
 
     handlePlaceholderDisplay(placeholderText, textarea) {
-        let styleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
-        if (!styleEl) {
-            styleEl = document.createElement('style');
-            styleEl.id = this.DYNAMIC_PLACEHOLDER_STYLE_ID;
-            document.head.appendChild(styleEl);
-        }
-
         const contentEscaped = CSS.escape(placeholderText);
 
-        let cssRules = '';
+        const beforeRule = this.findPlaceholderBeforeRule();
 
-        if (this._hasNativeTextualBefore && this._hasNativeTextualBefore.exists) {
-            textarea.placeholder = '';
-            cssRules = `
-                #${this.TEXTAREA_ID}::placeholder {
-                    color: transparent !important;
-                    text-shadow: none !important;
-                }
-                #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before {
-                    content: "${contentEscaped}" !important;
-                }
-            `;
+        if (beforeRule) {
+            this._modifiedRuleState.rule = beforeRule;
+            this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
+
+            beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
+
+            textarea.placeholder = ' ';
         } else {
             textarea.placeholder = placeholderText;
-            cssRules = `
-                #${this.TEXTAREA_ID}::placeholder {
-                    color: var(--text_color_acc, #989898) !important;
-                    text-shadow: none !important;
-                    font-size: inherit !important; 
-                    font-family: inherit !important; 
-                }
-                #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before,
-                #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::after {
-                    content: none !important;
-                    display: none !important;
-                }
-            `;
         }
-        styleEl.textContent = cssRules;
     },
 
-    detectNativeTextualBefore(parentElement, textarea) {
-        if (!parentElement || !textarea) return false;
-
-        const tempStyleEl = document.getElementById(this.DYNAMIC_PLACEHOLDER_STYLE_ID);
-        let originalStyleText = '';
-        if (tempStyleEl) {
-            originalStyleText = tempStyleEl.textContent;
-            tempStyleEl.textContent = '';
-        }
-
-        const beforeStyle = window.getComputedStyle(parentElement, '::before');
-        const content = beforeStyle.getPropertyValue('content');
-
-        if (tempStyleEl && originalStyleText) {
-            tempStyleEl.textContent = originalStyleText;
-        }
-
-        if (content && content !== 'none' && content !== '""') {
-            const actualContent = content.slice(1, -1);
-            if (actualContent.trim().length > 0) {
-                return {
-                    exists: true,
-                    fontSize: beforeStyle.getPropertyValue('font-size'),
-                    fontFamily: beforeStyle.getPropertyValue('font-family'),
-                    color: beforeStyle.getPropertyValue('color')
-                };
+    findPlaceholderBeforeRule() {
+        const selectorFragment = 'send_textarea:placeholder-shown)::before';
+        for (const sheet of document.styleSheets) {
+            try {
+                if (!sheet.cssRules) continue;
+                for (const rule of sheet.cssRules) {
+                    if (rule.selectorText && rule.selectorText.includes(selectorFragment)) {
+                        if (rule.style.getPropertyValue('content').trim() !== '') {
+                            return rule;
+                        }
+                    }
+                }
+            } catch (e) {
+                continue;
             }
         }
-        return false;
+        return null;
     },
 
     async onCharacterSwitch() {
         if (this.isSwitchingCharacter) return;
         this.isSwitchingCharacter = true;
         try {
-            this.cleanupDynamicStyles();
-            this._hasNativeTextualBefore = null;
-
-            const textarea = document.getElementById(this.TEXTAREA_ID);
-            if (textarea) textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
             this.currentSlogan = null;
             await new Promise(r => setTimeout(r, 300));
             const settings = this.getSettings();
@@ -486,11 +440,10 @@ const PlaceholderModule = {
                 const sloganEl = messages[i].querySelector('.mes_text div[hidden]');
                 if (sloganEl) {
                     const slogan = sloganEl.textContent.trim().replace(/^✦❋/, '').trim();
-                    if (slogan) { this.setAutoSlogan(slogan); return slogan; }
+                    if (slogan) { this.setAutoSlogan(slogan); return; }
                 }
             }
         } catch (error) { console.error('[Placeholder] 检测最新消息时出错:', error); }
-        return null;
     },
     renderSettingsHtml() {
         const s = this.getSettings();
@@ -532,13 +485,20 @@ const PlaceholderModule = {
                 this.updateWorldBookFromPanel(content).then(() => { if (this.getSettings().placeholderSource === 'worldbook') this.applyLogic(); });
             }, 500);
         });
+        $(document).on('input', `#${this.TEXTAREA_ID}`, e => {
+            if ($(e.currentTarget).val().trim().length > 0) {
+                this.cleanup();
+            } else {
+                this.applyLogic();
+            }
+        });
     },
     async loadWorldBookContentToPanel() {
         const textarea = $('#worldbook_placeholder_input');
         if (!textarea.length) return;
         textarea.val('').attr('placeholder', '正在读取世界书...');
         try {
-            const content = await this.applyWorldBookLogic(null, { setPlaceholder: false });
+            const content = await this.applyWorldBookLogic(document.getElementById(this.TEXTAREA_ID), { setPlaceholder: false });
             if (content && content !== this.resolveFallbackPlaceholder(document.getElementById(this.TEXTAREA_ID))) {
                 textarea.val(content).attr('placeholder', '修改此处可同步更新世界书条目...');
             } else { textarea.val('').attr('placeholder', '未找到“输入框”条目，输入内容可创建。'); }
@@ -560,35 +520,6 @@ const PlaceholderModule = {
         } catch (error) { console.error('[Placeholder] 更新世界书时发生错误:', error); }
     },
     resolveFallbackPlaceholder(textarea) { return textarea?.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助'; },
-    startPlaceholderObserver() {
-        const textarea = document.getElementById(this.TEXTAREA_ID);
-        const settings = this.getSettings();
-        const expected = settings.customPlaceholder.trim();
-        if (!textarea || settings.placeholderSource !== 'custom' || !expected) return;
-        this.stopPlaceholderObserver();
-        this.placeholderObserver = new MutationObserver(() => {
-            if (textarea.value.trim().length > 0) {
-                this.cleanupDynamicStyles();
-                return;
-            }
-
-            const nonQRFormItems = document.getElementById('nonQRFormItems');
-            const currentHasNativeTextualBefore = this.detectNativeTextualBefore(nonQRFormItems, textarea);
-
-            let currentEffectiveText = '';
-            if (currentHasNativeTextualBefore && currentHasNativeTextualBefore.exists) {
-                currentEffectiveText = window.getComputedStyle(nonQRFormItems, '::before').getPropertyValue('content').slice(1, -1);
-            } else {
-                currentEffectiveText = textarea.placeholder;
-            }
-
-            if (currentEffectiveText !== expected) {
-                this.applyLogic();
-            }
-        });
-        this.placeholderObserver.observe(textarea, { attributes: true, attributeFilter: ['placeholder', 'value'] });
-    },
-    stopPlaceholderObserver() { if (this.placeholderObserver) this.placeholderObserver.disconnect(); this.placeholderObserver = null; },
     async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
         let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
         try {
