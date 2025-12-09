@@ -410,9 +410,6 @@ const PlaceholderModule = {
                 }
                 #nonQRFormItems:has(#${this.TEXTAREA_ID}:placeholder-shown)::before {
                     content: "${contentEscaped}" !important;
-                    font-size: ${this._hasNativeTextualBefore.fontSize} !important;
-                    font-family: ${this._hasNativeTextualBefore.fontFamily} !important;
-                    color: var(--text_color_acc, #989898) !important;
                 }
             `;
         } else {
