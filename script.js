@@ -2,11 +2,12 @@ import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
 // ===================================================================
-//  小杂物集 (Misc Utilities) v1.3.0
+//  小杂物集 (Misc Utilities) v1.4.0
 //  - 模块1: 模型名称显示 (Model Display)
 //  - 模块2: 世界书输入框提示 (World Book Placeholder)
-//  - 模块3: 标语注入 (Slogan Injection)
-//  - 模块4: 全局字体替换 (Global Font)
+//  - 模块2-1: 标语注入 (Slogan Injection)
+//  - 模块3: 全局字体替换 (Global Font)
+//  - 模块4: 聊天截图 (Screenshot)
 // ===================================================================
 
 
@@ -17,7 +18,7 @@ import { extension_settings } from '../../../extensions.js';
 // ###################################################################
 const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.3.0',
+    CURRENT_SCRIPT_VERSION: '1.4.0',
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
@@ -631,7 +632,7 @@ const GlobalFontModule = {
             this.docContext = document;
         }
         this.applyAllStyles();
-        console.log('[模块-全局字体] v5.3.0 初始化成功。');
+        console.log('[模块-全局字体] 初始化成功。');
     },
 
     getSettings() {
@@ -656,31 +657,21 @@ const GlobalFontModule = {
         }
     },
 
-    /**
-     * [核心修改] 统一的样式应用入口。
-     * 现在它会分开处理字体家族和字体粗细，使粗细能对默认字体生效。
-     */
     applyAllStyles() {
         if (!this.docContext) this.init();
 
         const settings = this.getSettings();
 
-        // 如果整个模块被禁用，执行完整清理并退出。
         if (!settings.enabled) {
             this.cleanup();
             return;
         }
 
-        // --- 如果模块已启用，则分步处理 ---
-
-        // 1. 处理字体家族（Font Family）
         const fontName = this.getActiveFontName();
         if (fontName) {
-            // 如果选择了自定义字体，应用样式并启动观察者。
             this.applyFontStyles(fontName);
             if (typeof FontObserverModule !== 'undefined') FontObserverModule.start();
         } else {
-            // 如果选择的是“恢复主题默认字体”，则只清理字体家族相关的样式。
             const fontStyleEl = this.docContext.getElementById(this.STYLE_ID);
             if (fontStyleEl) fontStyleEl.textContent = '';
             this.docContext.documentElement.style.removeProperty('--mainFontFamily');
@@ -688,28 +679,20 @@ const GlobalFontModule = {
             if (typeof FontObserverModule !== 'undefined') FontObserverModule.stop();
         }
 
-        // 2. 处理字体粗细/描边（Faux Bold）
-        // 这一步独立于字体选择执行，因此能对默认字体生效。
         this.applyFauxBoldStyles();
     },
 
-    /**
-     * 完整清理函数，当模块总开关关闭时调用。
-     */
     cleanup() {
         if (!this.docContext) return;
 
-        // 清理字体家族样式
         const fontStyleEl = this.docContext.getElementById(this.STYLE_ID);
         if (fontStyleEl) fontStyleEl.textContent = '';
         this.docContext.documentElement.style.removeProperty('--mainFontFamily');
         this.docContext.documentElement.style.removeProperty('--monoFontFamily');
 
-        // 清理字体粗细/描边样式
         const fauxBoldStyleEl = this.docContext.getElementById(this.FAUX_BOLD_STYLE_ID);
         if (fauxBoldStyleEl) fauxBoldStyleEl.remove();
 
-        // 停止观察者
         if (typeof FontObserverModule !== 'undefined') FontObserverModule.stop();
 
         console.log('[模块-全局字体] 已禁用并清理所有样式，恢复主题默认。');
@@ -735,7 +718,6 @@ const GlobalFontModule = {
         let styleEl = this.docContext.getElementById(this.FAUX_BOLD_STYLE_ID);
         const settings = this.getSettings();
 
-        // 这里的判断条件决定了描边效果是否应用。它只关心模块总开关和自己的开关。
         if (!settings.enabled || !settings.fauxBold?.enabled || !settings.fauxBold.width || settings.fauxBold.width == 0) {
             if (styleEl) styleEl.remove();
             return;
@@ -995,6 +977,255 @@ const FontObserverModule = {
 
 // ###################################################################
 //
+//  模块 4: 聊天截图 (Screenshot)
+//
+// ###################################################################
+const ScreenshotModule = {
+    name: 'screenshot',
+    isSelectionModeActive: false,
+    html2canvasLoaded: false,
+    defaultSettings: Object.freeze({
+        enabled: true,
+        backgroundColor: '#1C2025',
+        filename: 'SillyTavern-Chat-{timestamp}.png',
+        stripButtons: true,
+        quality: 0.5,
+    }),
+
+    init() {
+        if (!this.getSettings().enabled) return;
+        this.ensureHtml2Canvas()
+            .then(() => {
+                this.injectUI();
+                this.startObserver();
+                this.bindUIEvents();
+                console.log('[模块-截图] 初始化成功。');
+            })
+            .catch(error => console.error('[模块-截图] 加载 html2canvas 失败:', error));
+    },
+
+    getSettings() {
+        if (!extension_settings[this.name]) {
+            extension_settings[this.name] = { ...this.defaultSettings };
+        }
+        return extension_settings[this.name];
+    },
+
+    saveSettings() {
+        script.saveSettingsDebounced();
+    },
+
+    ensureHtml2Canvas() {
+        if (this.html2canvasLoaded) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            if (typeof html2canvas !== 'undefined') {
+                this.html2canvasLoaded = true;
+                return resolve();
+            }
+            const scriptElement = document.createElement('script');
+            scriptElement.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            scriptElement.onload = () => {
+                this.html2canvasLoaded = true;
+                console.log('[模块-截图] html2canvas.js 加载成功。');
+                resolve();
+            };
+            scriptElement.onerror = () => reject('无法从CDN加载html2canvas');
+            document.head.appendChild(scriptElement);
+        });
+    },
+
+    injectUI() {
+        if ($('#dialogue_screenshot_mes').length) return;
+        const screenshotDialogHtml = `
+            <div id="dialogue_screenshot_mes">
+                <div id="dialogue_screenshot_mes_ok" data-i18n="Screenshot" class="menu_button interactable" tabindex="0" role="button">截图</div>
+                <div id="dialogue_screenshot_mes_cancel" data-i18n="Cancel" class="menu_button interactable" tabindex="0" role="button">取消</div>
+            </div>
+        `;
+        $('#form_sheld').prepend(screenshotDialogHtml);
+    },
+
+    bindUIEvents() {
+        $(document).off('click.screenshot');
+
+        $(document).on('click.screenshot', '#dialogue_screenshot_mes_ok', () => this.captureScreenshot());
+        $(document).on('click.screenshot', '#dialogue_screenshot_mes_cancel', () => this.exitSelectionMode());
+        $(document).on('click.screenshot', '.mes_screenshot', (e) => {
+            e.stopPropagation();
+            const messageElement = $(e.currentTarget).closest('.mes');
+            this.enterSelectionMode(messageElement[0]);
+        });
+
+        $(document).on('click.screenshot', '#chat .mes', (e) => {
+            if ($('body').hasClass('deleting_messages_mode') || !this.isSelectionModeActive) {
+                return;
+            }
+            if ($(e.target).is('.del_checkbox') || $(e.target).closest('.mes_buttons, .mes_edit_buttons, a, .mes_img, .swipe_left, .swipe_right').length) {
+                return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            const checkbox = $(e.currentTarget).find('.del_checkbox');
+            checkbox.prop('checked', !checkbox.prop('checked')).trigger('change');
+        });
+    },
+
+    startObserver() {
+        const chatNode = document.getElementById('chat');
+        if (!chatNode) {
+            setTimeout(() => this.startObserver(), 500); return;
+        }
+        const observer = new MutationObserver(mutations => {
+            mutations.forEach(mutation => {
+                if (mutation.type === 'childList') {
+                    mutation.addedNodes.forEach(node => {
+                        if (node.nodeType === 1 && $(node).is('.mes')) { this.injectButton(node); }
+                    });
+                }
+            });
+        });
+        observer.observe(chatNode, { childList: true });
+        $('#chat .mes').each((_, el) => this.injectButton(el));
+    },
+
+    injectButton(messageElement) {
+        if ($(messageElement).find('.mes_screenshot').length > 0) return;
+        const buttonHtml = `<div title="截图" class="mes_button mes_screenshot fa-solid fa-camera interactable" data-i18n="[title]Screenshot" tabindex="0" role="button"></div>`;
+        const container = $(messageElement).find('.extraMesButtons');
+        if (container.length) { container.append(buttonHtml); }
+    },
+
+    enterSelectionMode(clickedMessage) {
+        if ($('body').hasClass('deleting_messages_mode')) {
+            toastr.info('请先退出消息删除模式，再使用截图功能。');
+            return;
+        }
+        if (this.isSelectionModeActive) return;
+        this.isSelectionModeActive = true;
+        $('#send_form').hide();
+        $('#dialogue_screenshot_mes').css('display', 'flex');
+        $('body').addClass('screenshot-selection-active');
+        $('#chat .mes .del_checkbox').css('display', 'grid');
+        if (clickedMessage) { $(clickedMessage).find('.del_checkbox').prop('checked', true); }
+        script.hideSwipeButtons();
+    },
+
+    exitSelectionMode() {
+        if (!this.isSelectionModeActive) return;
+        this.isSelectionModeActive = false;
+        $('#dialogue_screenshot_mes').hide();
+        $('#send_form').show();
+        $('body').removeClass('screenshot-selection-active');
+        if (!$('body').hasClass('deleting_messages_mode')) {
+            $('#chat .mes .del_checkbox').css('display', 'none');
+        }
+        $('#chat .mes .del_checkbox').prop('checked', false);
+        script.showSwipeButtons();
+    },
+
+    async captureScreenshot() {
+        if (!this.html2canvasLoaded) {
+            toastr.error("截图库尚未加载完成，请稍后再试。");
+            return;
+        }
+
+        const okButton = $('#dialogue_screenshot_mes_ok');
+        okButton.text('处理中...').removeClass('interactable');
+
+        setTimeout(async () => {
+            let captureContainer = null;
+            try {
+                const selectedMessages = $('#chat .mes:has(.del_checkbox:checked)').get();
+
+                if (selectedMessages.length === 0) {
+                    toastr.info("请至少选择一条消息进行截图。");
+                    return;
+                }
+
+                captureContainer = document.createElement('div');
+                captureContainer.id = 'screenshot-capture-container';
+                document.body.appendChild(captureContainer);
+
+                selectedMessages.forEach(msg => {
+                    const clone = msg.cloneNode(true);
+                    const $clone = $(clone);
+                    $clone.addClass('screenshot-clone');
+
+                    if (this.getSettings().stripButtons) {
+                        $clone.find('.mes_buttons, .mes_edit_buttons, .swipe_left, .swipe_right, .swipes-counter, .del_checkbox, .for_checkbox, .mesIDDisplay, .tokenCounterDisplay').remove();
+                    }
+                    $clone.css('opacity', 1);
+                    captureContainer.appendChild(clone);
+                });
+
+                const canvas = await html2canvas(captureContainer, {
+                    backgroundColor: this.getSettings().backgroundColor,
+                    scale: window.devicePixelRatio * this.getSettings().quality,
+                    useCORS: true,
+                    logging: false,
+                    onclone: (clonedDoc) => {
+                         $(clonedDoc).find('#screenshot-capture-container').css({
+                            padding: '20px', display: 'inline-block', width: `${document.querySelector('#chat .mes').offsetWidth}px`
+                         });
+                         $(clonedDoc).find('.screenshot-clone').css('display', 'flex');
+                    }
+                });
+
+                const link = document.createElement('a');
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                link.download = this.getSettings().filename.replace('{timestamp}', timestamp);
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+
+            } catch (error) {
+                console.error('[模块-截图] 生成截图时出错:', error);
+                toastr.error('截图失败，请检查控制台获取更多信息。');
+            } finally {
+                if (captureContainer) {
+                    document.body.removeChild(captureContainer);
+                }
+                okButton.text('截图').addClass('interactable');
+                this.exitSelectionMode();
+            }
+        }, 10);
+    },
+
+    renderSettingsHtml() {
+        const s = this.getSettings();
+        return `
+            <div id="screenshot_options_wrapper">
+                <h3 class="sub-header">聊天截图 (v${this.CURRENT_SCRIPT_VERSION})</h3>
+                <div class="form-group"><label for="screenshot_bg_color">背景颜色:</label><input type="color" id="screenshot_bg_color" value="${s.backgroundColor}" style="width: 100%;"></div>
+                <div class="form-group"><label for="screenshot_filename">文件名模板:</label><input type="text" id="screenshot_filename" class="text_pole" value="${s.filename}"></div>
+                <div class="form-group"><label for="screenshot_quality">截图质量: <span id="screenshot_quality_value">${s.quality.toFixed(1)}</span></label><input type="range" id="screenshot_quality" min="0.1" max="1.0" step="0.1" value="${s.quality}" style="width: 100%;"></div>
+                <label class="checkbox_label"><input type="checkbox" id="screenshot_strip_buttons" ${s.stripButtons ? 'checked' : ''}><span>截图时移除消息操作按钮、ID等元素</span></label>
+                <hr>
+            </div>`;
+    },
+
+    bindSettingsEvents() {
+        const settings = this.getSettings();
+        $(document).on('input', '#screenshot_bg_color', (e) => { settings.backgroundColor = $(e.currentTarget).val(); this.saveSettings(); });
+        $(document).on('input', '#screenshot_filename', (e) => { settings.filename = $(e.currentTarget).val(); this.saveSettings(); });
+        $(document).on('input', '#screenshot_quality', (e) => {
+            const val = parseFloat($(e.currentTarget).val());
+            settings.quality = val;
+            $('#screenshot_quality_value').text(val.toFixed(1));
+            this.saveSettings();
+        });
+        $(document).on('change', '#screenshot_strip_buttons', (e) => { settings.stripButtons = $(e.currentTarget).is(':checked'); this.saveSettings(); });
+    },
+
+    stop() {
+        this.exitSelectionMode();
+        $(document).off('click.screenshot');
+        $('.mes_screenshot').remove();
+        $('#dialogue_screenshot_mes').remove();
+    }
+};
+
+// ###################################################################
+//
 //  主程序: 初始化与UI集成
 //
 // ###################################################################
@@ -1012,119 +1243,102 @@ function initializeCombinedExtension() {
                     <!-- 模型名称显示 -->
                     <label class="checkbox_label"><input type="checkbox" id="misc_model_display_toggle" ${ModelDisplayModule.getSettings().enabled ? 'checked' : ''}><span>模型名称显示</span></label>
                     <div id="model_display_settings_panel" class="sub-setting-container" style="${ModelDisplayModule.getSettings().enabled ? '' : 'display: none;'}">
-                        <div class="sub-setting-toggle">
-                            <b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div>
-                        </div>
-                        <div class="sub-setting-content" style="display: none;">
-                             ${ModelDisplayModule.renderSettingsHtml()}
-                        </div>
+                        <div class="sub-setting-toggle"><b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div></div>
+                        <div class="sub-setting-content" style="display: none;">${ModelDisplayModule.renderSettingsHtml()}</div>
                     </div>
 
                     <!-- 输入框文字替换 -->
                     <label class="checkbox_label"><input type="checkbox" id="misc_placeholder_toggle" ${PlaceholderModule.getSettings().enabled ? 'checked' : ''}><span>输入框文字替换</span></label>
                     <div id="placeholder_settings_panel" class="sub-setting-container" style="${PlaceholderModule.getSettings().enabled ? '' : 'display: none;'}">
-                        <div class="sub-setting-toggle">
-                            <b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div>
-                        </div>
-                        <div class="sub-setting-content" style="display: none;">
-                             ${PlaceholderModule.renderSettingsHtml()}
-                        </div>
+                        <div class="sub-setting-toggle"><b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div></div>
+                        <div class="sub-setting-content" style="display: none;">${PlaceholderModule.renderSettingsHtml()}</div>
                     </div>
 
                     <!-- 全局字体替换 -->
                     <label class="checkbox_label"><input type="checkbox" id="misc_global_font_toggle" ${GlobalFontModule.getSettings().enabled ? 'checked' : ''}><span>全局字体替换</span></label>
                     <div id="global_font_settings_panel" class="sub-setting-container" style="${GlobalFontModule.getSettings().enabled ? '' : 'display: none;'}">
-                        <div class="sub-setting-toggle">
-                            <b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div>
-                        </div>
-                        <div class="sub-setting-content" style="display: none;">
-                             ${GlobalFontModule.renderSettingsHtml()}
-                        </div>
+                        <div class="sub-setting-toggle"><b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div></div>
+                        <div class="sub-setting-content" style="display: none;">${GlobalFontModule.renderSettingsHtml()}</div>
+                    </div>
+
+                    <!-- 聊天截图 -->
+                    <label class="checkbox_label"><input type="checkbox" id="misc_screenshot_toggle" ${ScreenshotModule.getSettings().enabled ? 'checked' : ''}><span>聊天截图</span></label>
+                    <div id="screenshot_settings_panel" class="sub-setting-container" style="${ScreenshotModule.getSettings().enabled ? '' : 'display: none;'}">
+                        <div class="sub-setting-toggle"><b>详细设置</b><div class="sub-setting-icon fa-solid fa-chevron-down"></div></div>
+                        <div class="sub-setting-content" style="display: none;">${ScreenshotModule.renderSettingsHtml()}</div>
                     </div>
 
                 </div>
             </div>
             <style>
-                .version-row{display:flex;justify-content:flex-end;padding:0 5px 5px}
-                .version-indicator{color:var(--text_color_acc);font-size:.8em}
+                .version-row { display: flex; justify-content: flex-end; padding: 0 5px 5px; }
+                .version-indicator { color: var(--text_color_acc); font-size: .8em; }
                 #misc_beautify_settings h3.sub-header,
-                #misc_beautify_settings h4.sub-header{font-size:1em;margin-top:15px;margin-bottom:10px}
-                .placeholder-panel{margin-top:10px}
-                .placeholder-radio-group{display:flex;border:1px solid var(--border_color);border-radius:5px;overflow:hidden}
-                .placeholder-radio-group label{flex:1;text-align:center;padding:5px 0;background-color:var(--background_bg);cursor:pointer;border-left:1px solid var(--border_color)}
-                .placeholder-radio-group label:first-child{border-left:none}
-                .placeholder-radio-group input[type=radio]{display:none}
-                .placeholder-radio-group input[type=radio]:checked+span{color:var(--primary_color);font-weight:700}
-                .placeholder-radio-group label:hover{background-color:var(--background_layer_1)}
-                .model-override-row{display:flex;align-items:center}
-                .model-override-row .text_pole{flex-grow:1}
+                #misc_beautify_settings h4.sub-header { font-size: 1em; margin-top: 15px; margin-bottom: 10px; }
+                .placeholder-panel { margin-top: 10px; }
+                .placeholder-radio-group { display: flex; border: 1px solid var(--border_color); border-radius: 5px; overflow: hidden; }
+                .placeholder-radio-group label { flex: 1; text-align: center; padding: 5px 0; background-color: var(--background_bg); cursor: pointer; border-left: 1px solid var(--border_color); }
+                .placeholder-radio-group label:first-child { border-left: none; }
+                .placeholder-radio-group input[type=radio] { display: none; }
+                .placeholder-radio-group input[type=radio]:checked + span { color: var(--primary_color); font-weight: 700; }
+                .placeholder-radio-group label:hover { background-color: var(--background_layer_1); }
+                .model-override-row { display: flex; align-items: center; }
+                .model-override-row .text_pole { flex-grow: 1; }
 
-                /* 折叠UI样式 */
                 .sub-setting-container { margin-bottom: 10px; }
-                .sub-setting-toggle {
-                    display: flex;
-                    justify-content: space-between;
+                .sub-setting-toggle { display: flex; justify-content: space-between; align-items: center; padding: 8px; background-color: var(--background_layer_1); border-radius: 5px; margin-top: 5px; cursor: pointer; border: 1px solid var(--border_color); transition: background-color 0.2s; }
+                .sub-setting-toggle b { font-weight: normal; }
+                .sub-setting-toggle:hover { background-color: var(--background_layer_2); }
+                .sub-setting-icon { transition: transform 0.2s ease-in-out; }
+                .sub-setting-icon.up { transform: rotate(180deg); }
+                .sub-setting-content { padding: 15px 10px 10px 10px; border: 1px solid var(--border_color); border-top: none; border-radius: 0 0 5px 5px; background-color: var(--background_bg); }
+
+                #dialogue_screenshot_mes {
+                    display: none;
+                    width: 100%;
+                    justify-content: center;
                     align-items: center;
-                    padding: 8px;
-                    background-color: var(--background_layer_1);
-                    border-radius: 5px;
-                    margin-top: 5px;
-                    cursor: pointer;
-                    border: 1px solid var(--border_color);
-                    transition: background-color 0.2s;
+                    gap: 20px;
+                    padding-bottom: 10px;
                 }
-                .sub-setting-toggle b {
-                    font-weight: normal;
-                }
-                .sub-setting-toggle:hover {
-                    background-color: var(--background_layer_2);
-                }
-                .sub-setting-icon {
-                    transition: transform 0.2s ease-in-out;
-                }
-                .sub-setting-icon.up {
-                    transform: rotate(180deg);
-                }
-                .sub-setting-content {
-                    padding: 15px 10px 10px 10px;
-                    border: 1px solid var(--border_color);
-                    border-top: none;
-                    border-radius: 0 0 5px 5px;
-                    background-color: var(--background_bg);
-                }
+                .screenshot-selection-active #chat.chat_message_wrapper { filter: brightness(0.7); transition: filter 0.2s; }
+                .screenshot-selection-active .mes:not(:has(.del_checkbox:checked)) { opacity: 0.6; }
+                .screenshot-selection-active .mes { transition: opacity 0.2s; }
+                #screenshot-capture-container { position: absolute; top: -9999px; left: 0; z-index: -1; }
             </style>
         `;
         $('#extensions_settings').append(combinedSettingsHtml);
 
         $(document).on('change', '#misc_model_display_toggle', e => {
             const en = $(e.currentTarget).is(':checked');
-            const settings = ModelDisplayModule.getSettings();
-            settings.enabled = en;
+            ModelDisplayModule.getSettings().enabled = en;
             $('#model_display_settings_panel').toggle(en);
             ModelDisplayModule.rerenderAllModelNames(!en);
-            if(en) ModelDisplayModule.startObservers(); else ModelDisplayModule.stopObservers();
+            if (en) ModelDisplayModule.startObservers(); else ModelDisplayModule.stopObservers();
             script.saveSettingsDebounced();
         });
 
         $(document).on('change', '#misc_placeholder_toggle', e => {
             const en = $(e.currentTarget).is(':checked');
-            const settings = PlaceholderModule.getSettings();
-            settings.enabled = en;
+            PlaceholderModule.getSettings().enabled = en;
             $('#placeholder_settings_panel').toggle(en);
-            if(en) PlaceholderModule.init(); else {
-                const textarea = document.getElementById(PlaceholderModule.TEXTAREA_ID);
-                if (textarea) textarea.placeholder = PlaceholderModule.resolveFallbackPlaceholder(textarea);
-                PlaceholderModule.stopPlaceholderObserver();
-            }
+            if (en) PlaceholderModule.init(); else PlaceholderModule.cleanup();
             script.saveSettingsDebounced();
         });
 
         $(document).on('change', '#misc_global_font_toggle', e => {
             const en = $(e.currentTarget).is(':checked');
-            const settings = GlobalFontModule.getSettings();
-            settings.enabled = en;
+            GlobalFontModule.getSettings().enabled = en;
             $('#global_font_settings_panel').toggle(en);
             GlobalFontModule.saveSettings();
+        });
+
+        $(document).on('change', '#misc_screenshot_toggle', e => {
+            const en = $(e.currentTarget).is(':checked');
+            ScreenshotModule.getSettings().enabled = en;
+            $('#screenshot_settings_panel').toggle(en);
+            if (en) ScreenshotModule.init(); else ScreenshotModule.stop();
+            script.saveSettingsDebounced();
         });
 
         $(document).on('click', '.sub-setting-toggle', function() {
@@ -1135,10 +1349,12 @@ function initializeCombinedExtension() {
         ModelDisplayModule.bindSettingsEvents();
         PlaceholderModule.bindSettingsEvents();
         GlobalFontModule.bindSettingsEvents();
+        ScreenshotModule.bindSettingsEvents();
 
         ModelDisplayModule.init();
         PlaceholderModule.init();
         SloganInjectionModule.init();
+        ScreenshotModule.init();
 
         if (GlobalFontModule.getSettings().enabled && GlobalFontModule.getActiveFontName()) {
             FontObserverModule.start();
