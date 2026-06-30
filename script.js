@@ -2,7 +2,7 @@ import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
 // ===================================================================
-//  小杂物集 (Misc Utilities) v1.3.0
+//  小杂物集 (Misc Utilities) v1.3.1
 //  - 模块1: 模型名称显示 (Model Display)
 //  - 模块2: 世界书输入框提示 (World Book Placeholder)
 //  - 模块3: 标语注入 (Slogan Injection)
@@ -17,7 +17,7 @@ import { extension_settings } from '../../../extensions.js';
 // ###################################################################
 const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.3.0',
+    CURRENT_SCRIPT_VERSION: '1.3.1',
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
