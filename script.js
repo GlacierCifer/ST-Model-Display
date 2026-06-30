@@ -402,15 +402,24 @@ const PlaceholderModule = {
         }
     },
 
-    findPlaceholderBeforeRule() {
-        const selectorFragment = 'send_textarea:placeholder-shown)::before';
+findPlaceholderBeforeRule() {
+        const oldSelectorFragment = 'send_textarea:placeholder-shown)::before';
+        const newSelectorTarget = '#nonQRFormItems::before';
+
         for (const sheet of document.styleSheets) {
             try {
                 if (!sheet.cssRules) continue;
                 for (const rule of sheet.cssRules) {
-                    if (rule.selectorText && rule.selectorText.includes(selectorFragment)) {
-                        if (rule.style.getPropertyValue('content').trim() !== '') {
-                            return rule;
+                    if (rule.selectorText) {
+                        if (rule.selectorText.includes(oldSelectorFragment)) {
+                             if (rule.style.getPropertyValue('content').trim() !== '') {
+                                return rule;
+                            }
+                        }
+                        if (rule.selectorText === newSelectorTarget || rule.selectorText.includes(newSelectorTarget)) {
+                             if (rule.style.getPropertyValue('content').trim() !== '') {
+                                return rule;
+                            }
                         }
                     }
                 }
