@@ -2,11 +2,12 @@ import * as script from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 
 // ===================================================================
-//  小杂物集 (Misc Utilities) v1.3.1
+//  小杂物集 (Misc Utilities) v1.4.0
 //  - 模块1: 模型名称显示 (Model Display)
 //  - 模块2: 世界书输入框提示 (World Book Placeholder)
-//  - 模块3: 标语注入 (Slogan Injection)
-//  - 模块4: 全局字体替换 (Global Font)
+//  - 模块2-1: 标语注入 (Slogan Injection)
+//  - 模块3: 全局字体替换 (Global Font)
+//  - 模块4: 快捷刷新 (Quick Refresh)
 // ===================================================================
 
 
@@ -17,7 +18,7 @@ import { extension_settings } from '../../../extensions.js';
 // ###################################################################
 const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.3.1',
+    CURRENT_SCRIPT_VERSION: '1.4.0',
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
@@ -1021,7 +1022,7 @@ const FontObserverModule = {
             for (const mutation of mutations) {
                 if (mutation.addedNodes.length) {
                     mutation.addedNodes.forEach(node => {
-                        if (node.nodeType === 1) { 
+                        if (node.nodeType === 1) {
                             this.checkAndApply(node);
                         }
                     });
@@ -1055,6 +1056,26 @@ const FontObserverModule = {
 
 // ###################################################################
 //
+//  模块 4: 快捷刷新 (Quick Refresh)
+//
+// ###################################################################
+const QuickRefreshModule = {
+    name: 'quick_refresh',
+    init() {
+        this.bindEvents();
+        console.log('[模块-快捷刷新] 初始化成功。');
+    },
+    bindEvents() {
+        $(document).off('click.quickRefresh').on('click.quickRefresh', '#misc_quick_refresh_btn', () => {
+            if (confirm('确定要重新载入(刷新)整个页面吗？\n\n注意：如果有未保存的文本或设置可能会丢失。')) {
+                window.location.reload();
+            }
+        });
+    }
+};
+
+// ###################################################################
+//
 //  主程序: 初始化与UI集成
 //
 // ###################################################################
@@ -1067,7 +1088,11 @@ function initializeCombinedExtension() {
             <div id="misc_beautify_settings" class="inline-drawer">
                 <div class="inline-drawer-toggle inline-drawer-header"><b>小美化集</b><div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div></div>
                 <div class="inline-drawer-content" style="display: none;">
-                    <div class="version-row"><span class="version-indicator" id="model_display_version_indicator"></span></div>
+
+                    <div class="version-row">
+                        <i id="misc_quick_refresh_btn" class="fa-solid fa-arrows-rotate" title="刷新页面 (F5)"></i>
+                        <span class="version-indicator" id="model_display_version_indicator"></span>
+                    </div>
 
                     <!-- 模型名称显示 -->
                     <label class="checkbox_label"><input type="checkbox" id="misc_model_display_toggle" ${ModelDisplayModule.getSettings().enabled ? 'checked' : ''}><span>模型名称显示</span></label>
@@ -1105,8 +1130,11 @@ function initializeCombinedExtension() {
                 </div>
             </div>
             <style>
-                .version-row{display:flex;justify-content:flex-end;padding:0 5px 5px}
-                .version-indicator{color:var(--text_color_acc);font-size:.8em}
+                .version-row { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 0 5px 5px; }
+                .version-indicator { color: var(--text_color_acc); font-size: .8em; }
+                #misc_quick_refresh_btn { font-size: 0.9em; color: var(--text_color_acc); cursor: pointer; opacity: 0.6; transition: opacity 0.2s, color 0.2s; }
+                #misc_quick_refresh_btn:hover { opacity: 1; color: var(--SmartThemeBodyColor, var(--text_color)); }
+
                 #misc_beautify_settings h3.sub-header,
                 #misc_beautify_settings h4.sub-header{font-size:1em;margin-top:15px;margin-bottom:10px}
                 .placeholder-panel{margin-top:10px}
@@ -1195,6 +1223,7 @@ function initializeCombinedExtension() {
         ModelDisplayModule.bindSettingsEvents();
         PlaceholderModule.bindSettingsEvents();
         GlobalFontModule.bindSettingsEvents();
+        QuickRefreshModule.init();
 
         ModelDisplayModule.init();
         PlaceholderModule.init();
