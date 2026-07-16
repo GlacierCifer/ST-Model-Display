@@ -291,6 +291,11 @@ const PlaceholderModule = {
     name: 'worldbook_placeholder',
     iframeWindow: null,
     TEXTAREA_ID: 'send_textarea',
+    // 我们将这片不可或缺的记忆拼图带回来了
+    _modifiedRuleState: {
+        rule: null,
+        originalContent: '',
+    },
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -316,9 +321,15 @@ const PlaceholderModule = {
     },
 
     cleanup() {
-        // 全新的清理逻辑：拔除动态生成的 <style>
-        const styleTag = document.getElementById('worldbook-slogan-dynamic-style');
-        if (styleTag) styleTag.remove();
+        // 恢复被我们借用排版的原生伪元素文字
+        if (this._modifiedRuleState.rule) {
+            try {
+                this._modifiedRuleState.rule.style.setProperty('content', this._modifiedRuleState.originalContent);
+            } catch (e) {
+                // Ignore errors during cleanup
+            }
+        }
+        this._modifiedRuleState = { rule: null, originalContent: '' };
 
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (textarea) {
@@ -345,7 +356,7 @@ const PlaceholderModule = {
     getCurrentAutoSlogan() { return this.currentSlogan || ''; },
 
     async applyLogic() {
-        this.cleanup(); // 每次应用逻辑前先做好清理
+        this.cleanup();
 
         if (!this.getSettings().enabled) return;
 
@@ -378,46 +389,58 @@ const PlaceholderModule = {
 
     handlePlaceholderDisplay(placeholderText, textarea) {
         const contentEscaped = CSS.escape(placeholderText);
-        textarea.placeholder = ' '; // 保留空格，触发 :placeholder-shown 伪类机制
 
-        let styleTag = document.getElementById('worldbook-slogan-dynamic-style');
-        if (!styleTag) {
-            styleTag = document.createElement('style');
-            styleTag.id = 'worldbook-slogan-dynamic-style';
-            document.head.appendChild(styleTag);
+        // 呼唤出最聪明的寻踪魔法
+        const beforeRule = this.findPlaceholderBeforeRule();
+
+        if (beforeRule) {
+            // 情况A：找到了原作者精心预留文字和排版的伪元素！
+            // 我们暂存内容，将其内容强行替换掉，完美继承全部漂亮的美化规则。
+            this._modifiedRuleState.rule = beforeRule;
+            this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
+
+            beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
+
+            // 给原生输入框塞入一个空格，保证 :placeholder-shown 被激活。
+            textarea.placeholder = ' ';
+        } else {
+            // 情况B：这套美化并没有用伪元素写文字代劳。
+            // 完美！我们直接用原生输入框，不用考虑距离顶左侧，原作者的美化会自动包裹住它。
+            textarea.placeholder = placeholderText;
         }
+    },
 
-        // 注入新的规则
-        styleTag.innerHTML = `
-            /* 隐藏掉输入框原生 placeholder */
-            #send_textarea::placeholder {
-                color: transparent !important;
+    findPlaceholderBeforeRule() {
+        // 这是一种具备“灵魂感应”的寻找机制：在全部CSS规则里地毯式扫描
+        for (const sheet of document.styleSheets) {
+            try {
+                if (!sheet.cssRules) continue;
+                for (const rule of sheet.cssRules) {
+                    if (rule.selectorText && rule.style) {
+                        const sText = rule.selectorText.toLowerCase();
+
+                        // 规则1：选取的魔杖必须指向控制面板的输入区域（兼容旧有和新的容器）
+                        const targetsForm = sText.includes('send_textarea') || sText.includes('nonqrformitems');
+                        // 规则2：魔杖必须是在塑造幽影（伪元素）
+                        const isPseudo = sText.includes('::before') || sText.includes('::after') || sText.includes(':before') || sText.includes(':after');
+
+                        if (targetsForm && isPseudo) {
+                            const contentValue = rule.style.getPropertyValue('content').trim();
+
+                            // 规则3：也是核心！这个规则内必须包含实质上的文字内容。
+                            // 如果是空壳，或者是为了其他排版生成的幽影，我们就果断放弃它！
+                            if (contentValue && contentValue !== '""' && contentValue !== "''" && contentValue !== 'none') {
+                                return rule; // 找到了带有排版的完美肉体！
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                // 忽略被跨域等法阵阻挡的区域
+                continue;
             }
-
-            /* 为父容器提供定位锚点以防万一 */
-            #nonQRFormItems {
-                position: relative;
-            }
-
-            /* 当输入框为空（显示空格）时显示伪元素文字 */
-            #nonQRFormItems:has(#send_textarea:placeholder-shown)::before {
-                content: "${contentEscaped}" !important;
-
-                position: absolute;
-                left: 15px;
-                right: 90px;
-                top: 50%;
-                transform: translateY(-50%);
-                color: var(--SmartThemeBodyColor, rgba(255, 255, 255, 0.5));
-                opacity: 0.6;
-                pointer-events: none;
-                font-size: 14px;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                z-index: 10;
-            }
-        `;
+        }
+        return null;
     },
 
     async onCharacterSwitch() {
