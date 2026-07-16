@@ -387,19 +387,26 @@ const PlaceholderModule = {
 
     handlePlaceholderDisplay(placeholderText, textarea) {
         const contentEscaped = CSS.escape(placeholderText);
+        textarea.placeholder = ' '; // 保留空格，确发 :placeholder-shown 伪类机制
 
-        const beforeRule = this.findPlaceholderBeforeRule();
-
-        if (beforeRule) {
-            this._modifiedRuleState.rule = beforeRule;
-            this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
-
-            beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
-
-            textarea.placeholder = ' ';
-        } else {
-            textarea.placeholder = placeholderText;
+        // 寻找我们是否已经种下了这棵魔法树，没有则栽下一棵
+        let styleTag = document.getElementById('worldbook-slogan-dynamic-style');
+        if (!styleTag) {
+            styleTag = document.createElement('style');
+            styleTag.id = 'worldbook-slogan-dynamic-style';
+            document.head.appendChild(styleTag);
         }
+
+        // 注入新的规则。
+        // 它凭借 !important 强制赋予元素文字。
+        // 原作者精心调配的 color, position, font-size 等样式不仅不会被破坏，反而会顺滑地包裹住你的这串文字！
+        styleTag.innerHTML = `
+            #send_textarea:placeholder-shown::before,
+            #nonQRFormItems:has(#send_textarea:placeholder-shown)::before,
+            #nonQRFormItems::before {
+                content: "${contentEscaped}" !important;
+            }
+        `;
     },
 
 findPlaceholderBeforeRule() {
