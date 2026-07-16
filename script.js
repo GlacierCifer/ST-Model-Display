@@ -291,7 +291,6 @@ const PlaceholderModule = {
     name: 'worldbook_placeholder',
     iframeWindow: null,
     TEXTAREA_ID: 'send_textarea',
-    // 我们将这片不可或缺的记忆拼图带回来了
     _modifiedRuleState: {
         rule: null,
         originalContent: '',
@@ -321,7 +320,7 @@ const PlaceholderModule = {
     },
 
     cleanup() {
-        // 恢复被我们借用排版的原生伪元素文字
+        // 恢复原生伪元素
         if (this._modifiedRuleState.rule) {
             try {
                 this._modifiedRuleState.rule.style.setProperty('content', this._modifiedRuleState.originalContent);
@@ -330,6 +329,10 @@ const PlaceholderModule = {
             }
         }
         this._modifiedRuleState = { rule: null, originalContent: '' };
+
+        // 擦除注入
+        const nativeStyleTag = document.getElementById('worldbook-slogan-native-style');
+        if (nativeStyleTag) nativeStyleTag.remove();
 
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (textarea) {
@@ -363,6 +366,7 @@ const PlaceholderModule = {
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
 
+        // 如果输入框当前有输入内容，不执行替换逻辑
         if (textarea.value.trim().length > 0) {
             return;
         }
@@ -389,29 +393,37 @@ const PlaceholderModule = {
 
     handlePlaceholderDisplay(placeholderText, textarea) {
         const contentEscaped = CSS.escape(placeholderText);
-
-        // 呼唤出最聪明的寻踪魔法
         const beforeRule = this.findPlaceholderBeforeRule();
 
         if (beforeRule) {
-            // 情况A：找到了原作者精心预留文字和排版的伪元素！
-            // 我们暂存内容，将其内容强行替换掉，完美继承全部漂亮的美化规则。
+            // 劫持原作者排版，完美继承边距和风格。
             this._modifiedRuleState.rule = beforeRule;
             this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
-
             beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
-
-            // 给原生输入框塞入一个空格，保证 :placeholder-shown 被激活。
             textarea.placeholder = ' ';
         } else {
-            // 情况B：这套美化并没有用伪元素写文字代劳。
-            // 完美！我们直接用原生输入框，不用考虑距离顶左侧，原作者的美化会自动包裹住它。
+            // 使用原生占位符。
             textarea.placeholder = placeholderText;
+
+            // 破解原作者可能设定的 transparent !important
+            let styleTag = document.getElementById('worldbook-slogan-native-style');
+            if (!styleTag) {
+                styleTag = document.createElement('style');
+                styleTag.id = 'worldbook-slogan-native-style';
+                document.head.appendChild(styleTag);
+            }
+            // 使用更高权重 (textarea#send_textarea) 打破隐藏机制，使其显影
+            styleTag.innerHTML = `
+                textarea#send_textarea::placeholder {
+                    color: var(--SmartThemeBodyColor, rgba(200, 200, 200, 0.7)) !important;
+                    opacity: 0.6 !important;
+                }
+            `;
         }
     },
 
     findPlaceholderBeforeRule() {
-        // 这是一种具备“灵魂感应”的寻找机制：在全部CSS规则里地毯式扫描
+        // 在全部CSS规则中捕捉具有排版意义的伪元素文本内容
         for (const sheet of document.styleSheets) {
             try {
                 if (!sheet.cssRules) continue;
@@ -419,24 +431,22 @@ const PlaceholderModule = {
                     if (rule.selectorText && rule.style) {
                         const sText = rule.selectorText.toLowerCase();
 
-                        // 规则1：选取的魔杖必须指向控制面板的输入区域（兼容旧有和新的容器）
+                        // 定位到输入区域
                         const targetsForm = sText.includes('send_textarea') || sText.includes('nonqrformitems');
-                        // 规则2：魔杖必须是在塑造幽影（伪元素）
+                        // 定位到伪元素
                         const isPseudo = sText.includes('::before') || sText.includes('::after') || sText.includes(':before') || sText.includes(':after');
 
                         if (targetsForm && isPseudo) {
                             const contentValue = rule.style.getPropertyValue('content').trim();
 
-                            // 规则3：也是核心！这个规则内必须包含实质上的文字内容。
-                            // 如果是空壳，或者是为了其他排版生成的幽影，我们就果断放弃它！
+                            // 必须有实质上的文字。空壳或功能性元素会被忽略
                             if (contentValue && contentValue !== '""' && contentValue !== "''" && contentValue !== 'none') {
-                                return rule; // 找到了带有排版的完美肉体！
+                                return rule;
                             }
                         }
                     }
                 }
             } catch (e) {
-                // 忽略被跨域等法阵阻挡的区域
                 continue;
             }
         }
@@ -455,6 +465,7 @@ const PlaceholderModule = {
             await this.applyLogic();
         } finally { this.isSwitchingCharacter = false; }
     },
+
     async tryExtractSloganFromLatestMessage() {
         try {
             const messages = document.querySelectorAll('#chat .mes:not([is_user="true"])');
@@ -467,6 +478,7 @@ const PlaceholderModule = {
             }
         } catch (error) { console.error('[Placeholder] 检测最新消息时出错:', error); }
     },
+
     renderSettingsHtml() {
         const s = this.getSettings();
         return `
@@ -481,6 +493,7 @@ const PlaceholderModule = {
                 <div id="placeholder_panel_worldbook" class="placeholder-panel" style="${s.placeholderSource === 'worldbook' ? '' : 'display: none;'}"><p class="sub-label">当前角色世界书中的“输入框”条目：</p><textarea id="worldbook_placeholder_input" class="text_pole" rows="3" placeholder="正在从世界书加载..."></textarea></div>
             <hr></div>`;
     },
+
     bindSettingsEvents() {
         $(document).on('change', 'input[name="placeholder_source_radio"]', e => {
             const selected = $(e.currentTarget).val();
@@ -515,6 +528,7 @@ const PlaceholderModule = {
             }
         });
     },
+
     async loadWorldBookContentToPanel() {
         const textarea = $('#worldbook_placeholder_input');
         if (!textarea.length) return;
@@ -526,6 +540,7 @@ const PlaceholderModule = {
             } else { textarea.val('').attr('placeholder', '未找到“输入框”条目，输入内容可创建。'); }
         } catch (error) { textarea.attr('placeholder', '加载失败，请检查控制台。'); }
     },
+
     async updateWorldBookFromPanel(content) {
         if (!this.iframeWindow) return;
         try {
@@ -541,7 +556,9 @@ const PlaceholderModule = {
             });
         } catch (error) { console.error('[Placeholder] 更新世界书时发生错误:', error); }
     },
+
     resolveFallbackPlaceholder(textarea) { return textarea?.getAttribute('connected_text') || '输入想发送的消息，或输入 /? 获取帮助'; },
+
     async applyWorldBookLogic(textarea, { setPlaceholder = true } = {}) {
         let finalPlaceholder = this.resolveFallbackPlaceholder(textarea);
         try {
@@ -557,6 +574,7 @@ const PlaceholderModule = {
         if (setPlaceholder && textarea) textarea.placeholder = finalPlaceholder;
         return finalPlaceholder;
     },
+
     waitForIframe() {
         return new Promise(resolve => {
             const check = () => {
