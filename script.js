@@ -365,12 +365,6 @@ const PlaceholderModule = {
 
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
-
-        // 如果输入框当前有输入内容，不执行替换逻辑
-        if (textarea.value.trim().length > 0) {
-            return;
-        }
-
         const settings = this.getSettings();
         const mode = settings.placeholderSource;
         let effectivePlaceholderText = '';
@@ -396,23 +390,22 @@ const PlaceholderModule = {
         const beforeRule = this.findPlaceholderBeforeRule();
 
         if (beforeRule) {
-            // 劫持原作者排版，完美继承边距和风格。
+            // [情况A：有伪元素美化的]
             this._modifiedRuleState.rule = beforeRule;
             this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
             beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
+            // 交由原生机制监听打字行为自动显隐：
             textarea.placeholder = ' ';
         } else {
-            // 使用原生占位符。
-            textarea.placeholder = placeholderText;
+            // [情况B：无伪元素，借用原生placeholder，同时消除透明]
+            textarea.placeholder = placeholderText; // 交由原生机制自动显隐
 
-            // 破解原作者可能设定的 transparent !important
             let styleTag = document.getElementById('worldbook-slogan-native-style');
             if (!styleTag) {
                 styleTag = document.createElement('style');
                 styleTag.id = 'worldbook-slogan-native-style';
                 document.head.appendChild(styleTag);
             }
-            // 使用更高权重 (textarea#send_textarea) 打破隐藏机制，使其显影
             styleTag.innerHTML = `
                 textarea#send_textarea::placeholder {
                     color: var(--SmartThemeBodyColor, rgba(200, 200, 200, 0.7)) !important;
@@ -423,23 +416,17 @@ const PlaceholderModule = {
     },
 
     findPlaceholderBeforeRule() {
-        // 在全部CSS规则中捕捉具有排版意义的伪元素文本内容
         for (const sheet of document.styleSheets) {
             try {
                 if (!sheet.cssRules) continue;
                 for (const rule of sheet.cssRules) {
                     if (rule.selectorText && rule.style) {
                         const sText = rule.selectorText.toLowerCase();
-
-                        // 定位到输入区域
                         const targetsForm = sText.includes('send_textarea') || sText.includes('nonqrformitems');
-                        // 定位到伪元素
                         const isPseudo = sText.includes('::before') || sText.includes('::after') || sText.includes(':before') || sText.includes(':after');
 
                         if (targetsForm && isPseudo) {
                             const contentValue = rule.style.getPropertyValue('content').trim();
-
-                            // 必须有实质上的文字。空壳或功能性元素会被忽略
                             if (contentValue && contentValue !== '""' && contentValue !== "''" && contentValue !== 'none') {
                                 return rule;
                             }
@@ -519,13 +506,6 @@ const PlaceholderModule = {
             this.worldbookUpdateDebounce = setTimeout(() => {
                 this.updateWorldBookFromPanel(content).then(() => { if (this.getSettings().placeholderSource === 'worldbook') this.applyLogic(); });
             }, 500);
-        });
-        $(document).on('input', `#${this.TEXTAREA_ID}`, e => {
-            if ($(e.currentTarget).val().trim().length > 0) {
-                this.cleanup();
-            } else {
-                this.applyLogic();
-            }
         });
     },
 
