@@ -315,22 +315,18 @@ const PlaceholderModule = {
                 script.eventSource.on(script.event_types.CHAT_CHANGED, this.onCharacterSwitch.bind(this));
             } else { console.error('[模块-输入框] 致命错误：无法访问 script.eventSource。'); }
             this.applyLogic();
-            console.log('[模块-输入框] 初始化成功。');
+            console.log('[模块-输入框] 初始化成功。启动智能透明嗅探协议。');
         });
     },
 
     cleanup() {
-        // 第一件事：恢复伪元素
         if (this._modifiedRuleState.rule) {
             try {
                 this._modifiedRuleState.rule.style.setProperty('content', this._modifiedRuleState.originalContent);
-            } catch (e) {
-                // Ignore errors
-            }
+            } catch (e) {}
         }
         this._modifiedRuleState = { rule: null, originalContent: '' };
 
-        // 第二件事：彻底擦除破除结界的魔咒，绝对不留多余痕迹
         const nativeStyleTag = document.getElementById('worldbook-slogan-native-style');
         if (nativeStyleTag) nativeStyleTag.remove();
 
@@ -340,9 +336,8 @@ const PlaceholderModule = {
         }
     },
 
-    // 【修复点 1】：防主程序报错的空壳函数
     stopPlaceholderObserver() {
-        // 留空即可，用于防止外层总控关闭该模块时报 undefined 错误
+        // 防止面板开关报错专用
     },
 
     getSettings() {
@@ -355,6 +350,7 @@ const PlaceholderModule = {
         }
         return settings;
     },
+
     setAutoSlogan(text) {
         const slogan = (text || '').trim();
         if (!slogan) return;
@@ -392,15 +388,12 @@ const PlaceholderModule = {
     },
 
     handlePlaceholderDisplay(placeholderText, textarea) {
+        if (!placeholderText) return;
         const contentEscaped = CSS.escape(placeholderText);
-
         const beforeRule = this.findPlaceholderBeforeRule();
 
+        // 优先判定是否有纯粹的伪元素渲染
         if (beforeRule) {
-            // ==========================================
-            // 【情况一：有伪元素美化】
-            // 恪守原则：改内部文字，其他一切排版颜色绝对不动！
-            // ==========================================
             this._modifiedRuleState.rule = beforeRule;
             this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
             beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
@@ -408,67 +401,77 @@ const PlaceholderModule = {
             return;
         }
 
-        // 既然没有伪元素，文字一定写入浏览器原生区域
         textarea.placeholder = placeholderText;
 
-        const isMasked = this.isPlaceholderMasked();
+        const maskInfo = this.isPlaceholderMasked();
 
-        if (isMasked) {
-            // ==========================================
-            // 【情况二：有透明遮罩 (如:十四行诗)】
-            // 恪守原则：去除遮罩！但绝不画蛇添足强加别的色值！
-            // ==========================================
+        if (maskInfo) {
             let styleTag = document.getElementById('worldbook-slogan-native-style');
             if (!styleTag) {
                 styleTag = document.createElement('style');
                 styleTag.id = 'worldbook-slogan-native-style';
                 document.head.appendChild(styleTag);
             }
-            // 使用 revert 撤销，就是纯粹的“解除魔法”，回归系统底层的原本色彩
+
+            let cssFixes = '';
+
+            if (maskInfo.overrideOpacity) cssFixes += 'opacity: revert !important;\n';
+            if (maskInfo.overrideColor) cssFixes += 'color: revert !important;\n';
+
             styleTag.innerHTML = `
                 textarea#send_textarea::placeholder {
-                    color: revert !important;
-                    opacity: revert !important;
+                    ${cssFixes}
                 }
                 textarea#send_textarea::-webkit-input-placeholder {
-                    color: revert !important;
-                    opacity: revert !important;
+                    ${cssFixes}
                 }
             `;
         } else {
-            // ==========================================
-            // 【情况三：纯原生态】
-            // 恪守原则：绝不做任何多余的干涉！
-            // ==========================================
             const styleTag = document.getElementById('worldbook-slogan-native-style');
             if (styleTag) styleTag.remove();
         }
     },
 
-    // 嗅探是否被透明魔法遮盖了面容
     isPlaceholderMasked() {
+        let maskInfo = { overrideOpacity: false, overrideColor: false };
+
         for (const sheet of document.styleSheets) {
             try {
                 if (!sheet.cssRules) continue;
                 for (const rule of sheet.cssRules) {
                     if (rule.selectorText && rule.selectorText.toLowerCase().includes('send_textarea::placeholder')) {
-                        // 【修复点 2】：防止 getPropertyValue 返回空值导致 replace 抛出 TypeError 中断全局代码
                         const rawColor = rule.style.getPropertyValue('color');
                         const rawOpacity = rule.style.getPropertyValue('opacity');
 
                         const color = rawColor ? rawColor.replace(/\s/g, '') : '';
                         const opacity = rawOpacity ? rawOpacity.trim() : '';
 
-                        if (color === 'transparent' || color === 'rgba(0,0,0,0)' || opacity === '0' || opacity === '0.0') {
-                            return true;
+                        if (opacity === '0' || opacity === '0.0') {
+                            maskInfo.overrideOpacity = true;
+                        }
+                        if (color === 'transparent' || color === 'rgba(0,0,0,0)') {
+                            maskInfo.overrideColor = true;
                         }
                     }
                 }
-            } catch (e) {
-                continue;
+            } catch (e) { continue; }
+        }
+
+        if (maskInfo.overrideColor) {
+            const textarea = document.getElementById('send_textarea');
+            if (textarea) {
+                const pStyle = window.getComputedStyle(textarea, '::placeholder');
+
+                const hasShadow = (pStyle.textShadow && pStyle.textShadow !== 'none' && pStyle.textShadow !== '') ||
+                                  (pStyle.webkitTextStrokeWidth && parseInt(pStyle.webkitTextStrokeWidth) > 0);
+
+                if (hasShadow) {
+                    maskInfo.overrideColor = false;
+                }
             }
         }
-        return false;
+
+        return (maskInfo.overrideOpacity || maskInfo.overrideColor) ? maskInfo : false;
     },
 
     findPlaceholderBeforeRule() {
@@ -482,7 +485,6 @@ const PlaceholderModule = {
                         const isPseudo = sText.includes('::before') || sText.includes('::after') || sText.includes(':before') || sText.includes(':after');
 
                         if (targetsForm && isPseudo) {
-                            // 【修复点 3】：防止 content 返回 null 引起 trim 报错
                             const rawContent = rule.style.getPropertyValue('content');
                             const contentValue = rawContent ? rawContent.trim() : '';
 
@@ -492,9 +494,7 @@ const PlaceholderModule = {
                         }
                     }
                 }
-            } catch (e) {
-                continue;
-            }
+            } catch (e) { continue; }
         }
         return null;
     },
