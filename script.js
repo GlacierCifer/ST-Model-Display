@@ -320,17 +320,17 @@ const PlaceholderModule = {
     },
 
     cleanup() {
-        // 恢复原生伪元素
+        // 第一件事：恢复伪元素（如果有）
         if (this._modifiedRuleState.rule) {
             try {
                 this._modifiedRuleState.rule.style.setProperty('content', this._modifiedRuleState.originalContent);
             } catch (e) {
-                // Ignore errors during cleanup
+                // Ignore errors
             }
         }
         this._modifiedRuleState = { rule: null, originalContent: '' };
 
-        // 擦除注入
+        // 第二件事：擦除用于破除透明遮罩的“显影魔咒”（如果有）
         const nativeStyleTag = document.getElementById('worldbook-slogan-native-style');
         if (nativeStyleTag) nativeStyleTag.remove();
 
@@ -365,6 +365,7 @@ const PlaceholderModule = {
 
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (!textarea) return;
+
         const settings = this.getSettings();
         const mode = settings.placeholderSource;
         let effectivePlaceholderText = '';
@@ -387,19 +388,33 @@ const PlaceholderModule = {
 
     handlePlaceholderDisplay(placeholderText, textarea) {
         const contentEscaped = CSS.escape(placeholderText);
+
+        // 核心法印 1号：嗅探伪元素
         const beforeRule = this.findPlaceholderBeforeRule();
 
         if (beforeRule) {
-            // [情况A：有伪元素美化的]
+            // ==========================================
+            // 法则 1：有伪元素时
+            // -> 检测并修改文本，其它的样式一概不动！
+            // ==========================================
             this._modifiedRuleState.rule = beforeRule;
             this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
             beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
-            // 交由原生机制监听打字行为自动显隐：
             textarea.placeholder = ' ';
-        } else {
-            // [情况B：无伪元素，借用原生placeholder，同时消除透明]
-            textarea.placeholder = placeholderText; // 交由原生机制自动显隐
+            return;
+        }
 
+        // 如果没有伪元素，文字一定写入原生区域
+        textarea.placeholder = placeholderText;
+
+        // 核心法印 2号：嗅探系统本身有没有加上令其隐形的遮罩
+        const isMasked = this.isPlaceholderMasked();
+
+        if (isMasked) {
+            // ==========================================
+            // 法则 2：有透明遮罩时
+            // -> 驱散遮罩，赋予自适应底色，使其显形。
+            // ==========================================
             let styleTag = document.getElementById('worldbook-slogan-native-style');
             if (!styleTag) {
                 styleTag = document.createElement('style');
@@ -412,7 +427,39 @@ const PlaceholderModule = {
                     opacity: 0.6 !important;
                 }
             `;
+        } else {
+            // ==========================================
+            // 法则 3：纯原生态（前两个都没有）
+            // -> 什么都不做！只依赖上面那句 textarea.placeholder = text
+            // 如果还残存有解药魔咒，立马销毁它，彻底保持原生！
+            // ==========================================
+            const styleTag = document.getElementById('worldbook-slogan-native-style');
+            if (styleTag) styleTag.remove();
         }
+    },
+
+    // 【新增核心法术】检测原生提示词是不是被CSS隐藏了
+    isPlaceholderMasked() {
+        for (const sheet of document.styleSheets) {
+            try {
+                if (!sheet.cssRules) continue;
+                for (const rule of sheet.cssRules) {
+                    // 只锁定直接描写原生 placeholder 的规则
+                    if (rule.selectorText && rule.selectorText.toLowerCase().includes('send_textarea::placeholder')) {
+                        const color = rule.style.getPropertyValue('color').replace(/\s/g, '');
+                        const opacity = rule.style.getPropertyValue('opacity');
+
+                        // 如果它被设置为透明色，或者完全不透明度为0，即视为[有遮罩]
+                        if (color === 'transparent' || color === 'rgba(0,0,0,0)' || opacity === '0' || opacity === '0.0') {
+                            return true;
+                        }
+                    }
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+        return false;
     },
 
     findPlaceholderBeforeRule() {
