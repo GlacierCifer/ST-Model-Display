@@ -300,7 +300,7 @@ const PlaceholderModule = {
         enabled: true,
         customPlaceholder: '',
         placeholderSource: 'custom',
-        sloganPrompt: ['元素内仅包含当前角色极具个人风格的语录，格式模仿座右铭、网络用语、另类名言、爱语、吐槽等形式，具备黑色幽默感，最长 15 个汉字。','语录不要重复，也不要额外解释。'].join('\n'),
+        sloganPrompt: ['slogan内容变量内仅包含当前角色极具个人风格的语录，格式模仿座右铭、网络用语、另类名言、爱语、吐槽等形式，具备黑色幽默感，最长 15 个汉字。','语录不要重复，也不要额外解释。'].join('\n'),
     }),
     currentSlogan: null,
     isSwitchingCharacter: false,
@@ -634,7 +634,7 @@ const PlaceholderModule = {
 // ###################################################################
 const SloganInjectionModule = {
     initialized: false,
-    PROMPT_PREFIX: '请在每次正文的末尾额外输出一个隐藏的HTML元素，格式为 `<div hidden class="slogan-container">✦❋内容</div>`。',
+    PROMPT_PREFIX: '请在每次正文的末尾额外输出一个隐藏的HTML元素，格式为 `<div hidden class="slogan-container">✦❋{{内容}}</div>`。',
     extractionDebounceTimer: null,
     init() {
         if (this.initialized || !script.eventSource || !script.event_types) return;
