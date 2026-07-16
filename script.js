@@ -291,10 +291,6 @@ const PlaceholderModule = {
     name: 'worldbook_placeholder',
     iframeWindow: null,
     TEXTAREA_ID: 'send_textarea',
-    _modifiedRuleState: {
-        rule: null,
-        originalContent: '',
-    },
     defaultSettings: Object.freeze({
         enabled: true,
         customPlaceholder: '',
@@ -320,14 +316,9 @@ const PlaceholderModule = {
     },
 
     cleanup() {
-        if (this._modifiedRuleState.rule) {
-            try {
-                this._modifiedRuleState.rule.style.setProperty('content', this._modifiedRuleState.originalContent);
-            } catch (e) {
-                // Ignore errors during cleanup
-            }
-        }
-        this._modifiedRuleState = { rule: null, originalContent: '' };
+        // 全新的清理逻辑：拔除动态生成的 <style>
+        const styleTag = document.getElementById('worldbook-slogan-dynamic-style');
+        if (styleTag) styleTag.remove();
 
         const textarea = document.getElementById(this.TEXTAREA_ID);
         if (textarea) {
@@ -354,7 +345,7 @@ const PlaceholderModule = {
     getCurrentAutoSlogan() { return this.currentSlogan || ''; },
 
     async applyLogic() {
-        this.cleanup();
+        this.cleanup(); // 每次应用逻辑前先做好清理
 
         if (!this.getSettings().enabled) return;
 
@@ -387,9 +378,8 @@ const PlaceholderModule = {
 
     handlePlaceholderDisplay(placeholderText, textarea) {
         const contentEscaped = CSS.escape(placeholderText);
-        textarea.placeholder = ' '; // 保留空格，确发 :placeholder-shown 伪类机制
+        textarea.placeholder = ' '; // 保留空格，触发 :placeholder-shown 伪类机制
 
-        // 寻找我们是否已经种下了这棵魔法树，没有则栽下一棵
         let styleTag = document.getElementById('worldbook-slogan-dynamic-style');
         if (!styleTag) {
             styleTag = document.createElement('style');
@@ -397,44 +387,37 @@ const PlaceholderModule = {
             document.head.appendChild(styleTag);
         }
 
-        // 注入新的规则。
-        // 它凭借 !important 强制赋予元素文字。
-        // 原作者精心调配的 color, position, font-size 等样式不仅不会被破坏，反而会顺滑地包裹住你的这串文字！
+        // 注入新的规则
         styleTag.innerHTML = `
-            #send_textarea:placeholder-shown::before,
-            #nonQRFormItems:has(#send_textarea:placeholder-shown)::before,
-            #nonQRFormItems::before {
+            /* 隐藏掉输入框原生 placeholder */
+            #send_textarea::placeholder {
+                color: transparent !important;
+            }
+
+            /* 为父容器提供定位锚点以防万一 */
+            #nonQRFormItems {
+                position: relative;
+            }
+
+            /* 当输入框为空（显示空格）时显示伪元素文字 */
+            #nonQRFormItems:has(#send_textarea:placeholder-shown)::before {
                 content: "${contentEscaped}" !important;
+
+                position: absolute;
+                left: 15px;
+                right: 90px;
+                top: 50%;
+                transform: translateY(-50%);
+                color: var(--SmartThemeBodyColor, rgba(255, 255, 255, 0.5));
+                opacity: 0.6;
+                pointer-events: none;
+                font-size: 14px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                z-index: 10;
             }
         `;
-    },
-
-findPlaceholderBeforeRule() {
-        const oldSelectorFragment = 'send_textarea:placeholder-shown)::before';
-        const newSelectorTarget = '#nonQRFormItems::before';
-
-        for (const sheet of document.styleSheets) {
-            try {
-                if (!sheet.cssRules) continue;
-                for (const rule of sheet.cssRules) {
-                    if (rule.selectorText) {
-                        if (rule.selectorText.includes(oldSelectorFragment)) {
-                             if (rule.style.getPropertyValue('content').trim() !== '') {
-                                return rule;
-                            }
-                        }
-                        if (rule.selectorText === newSelectorTarget || rule.selectorText.includes(newSelectorTarget)) {
-                             if (rule.style.getPropertyValue('content').trim() !== '') {
-                                return rule;
-                            }
-                        }
-                    }
-                }
-            } catch (e) {
-                continue;
-            }
-        }
-        return null;
     },
 
     async onCharacterSwitch() {
