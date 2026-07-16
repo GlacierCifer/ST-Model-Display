@@ -433,23 +433,156 @@ const PlaceholderModule = {
             // -> 什么都不做！只依赖上面那句 textarea.placeholder = text
             // 如果还残存有解药魔咒，立马销毁它，彻底保持原生！
             // ==========================================
+const PlaceholderModule = {
+    name: 'worldbook_placeholder',
+    iframeWindow: null,
+    TEXTAREA_ID: 'send_textarea',
+    _modifiedRuleState: {
+        rule: null,
+        originalContent: '',
+    },
+    defaultSettings: Object.freeze({
+        enabled: true,
+        customPlaceholder: '',
+        placeholderSource: 'custom',
+        sloganPrompt: ['元素内仅包含当前角色极具个人风格的语录，格式模仿座右铭、网络用语、另类名言、爱语、吐槽等形式，具备黑色幽默感，最长 15 个汉字。','语录不要重复，也不要额外解释。'].join('\n'),
+    }),
+    currentSlogan: null,
+    isSwitchingCharacter: false,
+    worldbookUpdateDebounce: null,
+
+    init() {
+        if (!this.getSettings().enabled) {
+            this.cleanup();
+            return;
+        }
+        this.waitForIframe().then(() => {
+            if (script.eventSource && script.event_types) {
+                script.eventSource.on(script.event_types.CHAT_CHANGED, this.onCharacterSwitch.bind(this));
+            } else { console.error('[模块-输入框] 致命错误：无法访问 script.eventSource。'); }
+            this.applyLogic();
+            console.log('[模块-输入框] 初始化成功。');
+        });
+    },
+
+    cleanup() {
+        // 恢复伪元素
+        if (this._modifiedRuleState.rule) {
+            try {
+                this._modifiedRuleState.rule.style.setProperty('content', this._modifiedRuleState.originalContent);
+            } catch (e) {
+                // Ignore errors
+            }
+        }
+        this._modifiedRuleState = { rule: null, originalContent: '' };
+
+        const nativeStyleTag = document.getElementById('worldbook-slogan-native-style');
+        if (nativeStyleTag) nativeStyleTag.remove();
+
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (textarea) {
+            textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
+        }
+    },
+
+    getSettings() {
+        if (!extension_settings[this.name]) {
+            extension_settings[this.name] = { ...this.defaultSettings };
+        }
+        const settings = extension_settings[this.name];
+        for (const key of Object.keys(this.defaultSettings)) {
+            if (settings[key] === undefined) settings[key] = this.defaultSettings[key];
+        }
+        return settings;
+    },
+    setAutoSlogan(text) {
+        const slogan = (text || '').trim();
+        if (!slogan) return;
+        this.currentSlogan = slogan;
+        if (this.getSettings().enabled && this.getSettings().placeholderSource === 'auto') this.applyLogic();
+    },
+    getCurrentAutoSlogan() { return this.currentSlogan || ''; },
+
+    async applyLogic() {
+        this.cleanup();
+
+        if (!this.getSettings().enabled) return;
+
+        const textarea = document.getElementById(this.TEXTAREA_ID);
+        if (!textarea) return;
+
+        const settings = this.getSettings();
+        const mode = settings.placeholderSource;
+        let effectivePlaceholderText = '';
+
+        if (mode === 'custom') {
+            effectivePlaceholderText = settings.customPlaceholder.trim();
+        } else if (mode === 'auto') {
+            effectivePlaceholderText = this.getCurrentAutoSlogan();
+        } else if (mode === 'worldbook') {
+            effectivePlaceholderText = await this.applyWorldBookLogic(textarea, { setPlaceholder: false });
+        }
+
+        if (!effectivePlaceholderText) {
+            textarea.placeholder = this.resolveFallbackPlaceholder(textarea);
+            return;
+        }
+
+        this.handlePlaceholderDisplay(effectivePlaceholderText, textarea);
+    },
+
+    handlePlaceholderDisplay(placeholderText, textarea) {
+        const contentEscaped = CSS.escape(placeholderText);
+
+        const beforeRule = this.findPlaceholderBeforeRule();
+
+        if (beforeRule) {
+            this._modifiedRuleState.rule = beforeRule;
+            this._modifiedRuleState.originalContent = beforeRule.style.getPropertyValue('content');
+            beforeRule.style.setProperty('content', `"${contentEscaped}"`, 'important');
+            textarea.placeholder = ' ';
+            return;
+        }
+
+        // 既然没有伪元素，文字一定写入浏览器原生区域
+        textarea.placeholder = placeholderText;
+
+        const isMasked = this.isPlaceholderMasked();
+
+        if (isMasked) {
+            let styleTag = document.getElementById('worldbook-slogan-native-style');
+            if (!styleTag) {
+                styleTag = document.createElement('style');
+                styleTag.id = 'worldbook-slogan-native-style';
+                document.head.appendChild(styleTag);
+            }
+            // 使用 revert 撤销
+            styleTag.innerHTML = `
+                textarea#send_textarea::placeholder {
+                    color: revert !important;
+                    opacity: revert !important;
+                }
+                textarea#send_textarea::-webkit-input-placeholder {
+                    color: revert !important;
+                    opacity: revert !important;
+                }
+            `;
+        } else {
             const styleTag = document.getElementById('worldbook-slogan-native-style');
             if (styleTag) styleTag.remove();
         }
     },
 
-    // 【新增核心法术】检测原生提示词是不是被CSS隐藏了
+    // 嗅探是否透明
     isPlaceholderMasked() {
         for (const sheet of document.styleSheets) {
             try {
                 if (!sheet.cssRules) continue;
                 for (const rule of sheet.cssRules) {
-                    // 只锁定直接描写原生 placeholder 的规则
                     if (rule.selectorText && rule.selectorText.toLowerCase().includes('send_textarea::placeholder')) {
                         const color = rule.style.getPropertyValue('color').replace(/\s/g, '');
                         const opacity = rule.style.getPropertyValue('opacity');
 
-                        // 如果它被设置为透明色，或者完全不透明度为0，即视为[有遮罩]
                         if (color === 'transparent' || color === 'rgba(0,0,0,0)' || opacity === '0' || opacity === '0.0') {
                             return true;
                         }
