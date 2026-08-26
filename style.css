@@ -1,0 +1,70 @@
+#misc_beautify_settings .version-row {
+    display: flex !important;
+    justify-content: flex-end !important;
+    align-items: center;
+    gap: 12px;
+    padding: 0 5px 5px;
+}
+#misc_beautify_settings .version-indicator {
+    color: var(--text_color_acc);
+    font-size: .8em;
+}
+#misc_quick_refresh_btn {
+    font-size: 0.9em;
+    color: var(--text_color_acc);
+    cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 0.2s, color 0.2s;
+}
+#misc_quick_refresh_btn:hover {
+    opacity: 1;
+    color: var(--SmartThemeBodyColor, var(--text_color));
+}
+
+#misc_beautify_settings h3.sub-header,
+#misc_beautify_settings h4.sub-header {
+    font-size:1em; margin-top:15px; margin-bottom:10px
+}
+.placeholder-panel { margin-top:10px }
+.placeholder-radio-group { display:flex; border:1px solid var(--border_color); border-radius:5px; overflow:hidden }
+.placeholder-radio-group label { flex:1; text-align:center; padding:5px 0; background-color:var(--background_bg); cursor:pointer; border-left:1px solid var(--border_color) }
+.placeholder-radio-group label:first-child { border-left:none }
+.placeholder-radio-group input[type=radio] { display:none }
+.placeholder-radio-group input[type=radio]:checked+span { color:var(--primary_color); font-weight:700 }
+.placeholder-radio-group label:hover { background-color:var(--background_layer_1) }
+.model-override-row { display:flex; align-items:center }
+.model-override-row .text_pole { flex-grow:1 }
+
+/* 折叠UI样式 */
+.sub-setting-container { margin-bottom: 10px; }
+.sub-setting-toggle {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    background-color: var(--background_layer_1);
+    border-radius: 5px;
+    margin-top: 5px;
+    cursor: pointer;
+    border: 1px solid var(--border_color);
+    transition: background-color 0.2s;
+}
+.sub-setting-toggle b {
+    font-weight: normal;
+}
+.sub-setting-toggle:hover {
+    background-color: var(--background_layer_2);
+}
+.sub-setting-icon {
+    transition: transform 0.2s ease-in-out;
+}
+.sub-setting-icon.up {
+    transform: rotate(180deg);
+}
+.sub-setting-content {
+    padding: 15px 10px 10px 10px;
+    border: 1px solid var(--border_color);
+    border-top: none;
+    border-radius: 0 0 5px 5px;
+    background-color: var(--background_bg);
+}
