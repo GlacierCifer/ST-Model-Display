@@ -3,7 +3,7 @@ import { extension_settings } from '../../../../extensions.js';
 
 export const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.5.0',
+    CURRENT_SCRIPT_VERSION: '1.5.0', // 新增了精简过滤功能
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
@@ -24,6 +24,7 @@ export const ModelDisplayModule = {
         enableIconSystem: false,
         autoMatchOfficial: true,
         officialColorMode: 'original',
+        matchDisplayMode: 'normal', // 新增：匹配成功后的显示模式配置
         iconRules: [],
     }),
     escapeHTML(str) {
@@ -99,6 +100,16 @@ export const ModelDisplayModule = {
             </div>
 
             <div id="icon_system_settings" style="display: ${settings.enableIconSystem ? 'block' : 'none'}; padding-left: 10px; border-left: 3px solid var(--SmartThemeBorderColor, #555); margin-bottom: 10px;">
+
+                <!-- 新增：精简过滤模式下拉框 (当有匹配时生效) -->
+                <div class="form-group" style="margin-top: 10px;">
+                    <label style="display:block; margin-bottom:5px;" title="仅在匹配成功时生效，用于丢弃冗长的原名称。">匹配成功后的精简模式:</label>
+                    <select id="model_display_match_mode" class="text_pole" style="width: 100%;">
+                        <option value="normal" ${settings.matchDisplayMode === 'normal' ? 'selected' : ''}>常规: 显示 图标/规则前缀 + 完整模型原名 (默认)</option>
+                        <option value="icon_only" ${settings.matchDisplayMode === 'icon_only' ? 'selected' : ''}>精简: 仅显示匹配的 图标/规则文本 (隐藏原名)</option>
+                        <option value="keyword_only" ${settings.matchDisplayMode === 'keyword_only' ? 'selected' : ''}>精简: 仅显示触发了匹配的 关键词 (隐藏原名与图标)</option>
+                    </select>
+                </div>
 
                 <div class="form-group" style="margin-top: 10px;">
                     <label class="checkbox_label" title="支持识别: Claude, DeepSeek, Doubao, Gemini, GLM, GPT, Grok, Kimi, Qwen">
@@ -191,6 +202,13 @@ export const ModelDisplayModule = {
             else $('#icon_system_settings').slideUp();
             this.saveSettings();
         });
+
+        // 绑定精简模式的事件
+        $(document).on('change', '#model_display_match_mode', (e) => {
+            this.getSettings().matchDisplayMode = $(e.currentTarget).val();
+            this.saveSettings();
+        });
+
         $(document).on('change', '#model_display_auto_match', (e) => {
             const currentSettings = this.getSettings();
             currentSettings.autoMatchOfficial = $(e.currentTarget).is(':checked');
@@ -203,7 +221,6 @@ export const ModelDisplayModule = {
             this.saveSettings();
         });
 
-        // 规则相关的切换事件
         $(document).on('change', '.rule-type', (e) => {
             const row = $(e.currentTarget).closest('.icon-rule-row');
             const type = $(e.currentTarget).val();
@@ -321,12 +338,9 @@ export const ModelDisplayModule = {
     async getAutoMatchedSvg(modelName) {
         if (!modelName) return null;
         const lowerName = modelName.toLowerCase();
-
         let matchedKeyword = this.knownBrands.find(brand => lowerName.includes(brand));
         if (!matchedKeyword || this.failedAutoIcons.has(matchedKeyword)) return null;
-
         const svgStr = await this.fetchOfficialIcon(`${matchedKeyword}.svg`, false);
-
         if (svgStr) {
             return svgStr;
         } else {
@@ -337,7 +351,6 @@ export const ModelDisplayModule = {
     makeSvgIdsUnique(svgStr) {
         if (!svgStr) return '';
         const uniqueSuffix = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
-        // 将所有 id="xxx" 和 url(#xxx) 替换为带随机后缀的版本
         return String(svgStr)
             .replace(/id="([^"]+)"/g, `id="$1-${uniqueSuffix}"`)
             .replace(/url\(#([^)]+)\)/g, `url(#$1-${uniqueSuffix})`);
@@ -360,10 +373,15 @@ export const ModelDisplayModule = {
         iconSvg.dataset.modelInjected = 'true';
 
         const settings = this.getSettings();
-        const displayName = this.getDisplayName(modelName);
+        let displayName = this.getDisplayName(modelName);
 
         let iconHtml = '';
         let activePrefix = settings.prefix;
+
+        // 记录否有发生了匹配和匹配到的关键词来源，用于精简模式的判断
+        let hasMatch = false;
+        let matchedKeywordForDisplay = '';
+        let matchedRuleCache = null;
 
         if (settings.enableIconSystem) {
             let matchedRule = null;
@@ -376,7 +394,11 @@ export const ModelDisplayModule = {
                 }
             }
 
-                        if (matchedRule) {
+            if (matchedRule) {
+                hasMatch = true;
+                matchedKeywordForDisplay = matchedRule.keyword;
+                matchedRuleCache = matchedRule;
+
                 if (matchedRule.type === 'custom' && matchedRule.customSvg) {
                     iconHtml = this.makeSvgIdsUnique(matchedRule.customSvg);
                     activePrefix = '';
@@ -386,14 +408,34 @@ export const ModelDisplayModule = {
                 }
             }
             else if (settings.autoMatchOfficial) {
-                let svgStr = await this.getAutoMatchedSvg(modelName);
-                if (svgStr) {
-                    svgStr = this.makeSvgIdsUnique(svgStr);
-                    iconHtml = this.applyColorMode(svgStr, settings.officialColorMode);
-                    activePrefix = '';
+                let matchedOfficial = this.knownBrands.find(brand => modelName.toLowerCase().includes(brand));
+                if (matchedOfficial) {
+                    let svgStr = await this.getAutoMatchedSvg(modelName);
+                    if (svgStr) {
+                        hasMatch = true;
+                        matchedKeywordForDisplay = matchedOfficial;
+                        svgStr = this.makeSvgIdsUnique(svgStr);
+                        iconHtml = this.applyColorMode(svgStr, settings.officialColorMode);
+                        activePrefix = '';
+                    }
                 }
             }
         }
+
+        // ====== 核心拦截/过滤修改区域 ======
+        if (hasMatch && settings.matchDisplayMode && settings.matchDisplayMode !== 'normal') {
+            if (settings.matchDisplayMode === 'icon_only') {
+                // 精简模式：丢弃冗长的displayName。若是图标则仅显图标；若是文本规则文本，activePrefix则会接管显示
+                displayName = '';
+            } else if (settings.matchDisplayMode === 'keyword_only') {
+                // 精简关键词模式：使用捕获的短关键词替换掉原本又臭又长的模型名字符串
+                displayName = matchedKeywordForDisplay;
+                iconHtml = ''; // 强制抛弃匹配到的图标
+                // 恢复为默认的全局前缀，防止被自定义规则或图标逻辑置空
+                activePrefix = settings.prefix;
+            }
+        }
+        // =====================================
 
         const fullText = `${activePrefix}${displayName}${settings.suffix}`;
 
@@ -512,6 +554,6 @@ export const ModelDisplayModule = {
     async checkForUpdates() {
         const indicator = $('#model_display_version_indicator');
         if (!indicator.length) return;
-        indicator.text(`v${this.CURRENT_SCRIPT_VERSION}`).css('cursor', 'default').attr('title', '这是一个修改版，无法自动检查更新。');
+        indicator.text(`v${this.CURRENT_SCRIPT_VERSION}`).css('cursor', 'default').attr('title', '这是一个带精简过滤功能的修改版，无法自动检查更新。');
     }
 };
