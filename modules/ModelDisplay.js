@@ -3,7 +3,7 @@ import { extension_settings } from '../../../../extensions.js';
 
 export const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.5.0', // 新增了精简过滤功能
+    CURRENT_SCRIPT_VERSION: '1.5.0', // 优化精简模式下的前后缀屏蔽逻辑
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
@@ -24,7 +24,7 @@ export const ModelDisplayModule = {
         enableIconSystem: false,
         autoMatchOfficial: true,
         officialColorMode: 'original',
-        matchDisplayMode: 'normal', // 新增：匹配成功后的显示模式配置
+        matchDisplayMode: 'normal',
         iconRules: [],
     }),
     escapeHTML(str) {
@@ -101,13 +101,12 @@ export const ModelDisplayModule = {
 
             <div id="icon_system_settings" style="display: ${settings.enableIconSystem ? 'block' : 'none'}; padding-left: 10px; border-left: 3px solid var(--SmartThemeBorderColor, #555); margin-bottom: 10px;">
 
-                <!-- 新增：精简过滤模式下拉框 (当有匹配时生效) -->
                 <div class="form-group" style="margin-top: 10px;">
-                    <label style="display:block; margin-bottom:5px;" title="仅在匹配成功时生效，用于丢弃冗长的原名称。">匹配成功后的精简模式:</label>
+                    <label style="display:block; margin-bottom:5px;" title="仅在匹配成功时生效，开启精简也会自动屏蔽上方设定的全局前后缀。">显示模式:</label>
                     <select id="model_display_match_mode" class="text_pole" style="width: 100%;">
-                        <option value="normal" ${settings.matchDisplayMode === 'normal' ? 'selected' : ''}>常规: 显示 图标/规则前缀 + 完整模型原名 (默认)</option>
-                        <option value="icon_only" ${settings.matchDisplayMode === 'icon_only' ? 'selected' : ''}>精简: 仅显示匹配的 图标/规则文本 (隐藏原名)</option>
-                        <option value="keyword_only" ${settings.matchDisplayMode === 'keyword_only' ? 'selected' : ''}>精简: 仅显示触发了匹配的 关键词 (隐藏原名与图标)</option>
+                        <option value="normal" ${settings.matchDisplayMode === 'normal' ? 'selected' : ''}>常规: 显示 图标/规则前缀 + 完整模型原名</option>
+                        <option value="icon_only" ${settings.matchDisplayMode === 'icon_only' ? 'selected' : ''}>精简: 仅显示匹配的 图标/规则文本</option>
+                        <option value="keyword_only" ${settings.matchDisplayMode === 'keyword_only' ? 'selected' : ''}>精简: 仅显示触发了匹配的 关键词</option>
                     </select>
                 </div>
 
@@ -203,7 +202,6 @@ export const ModelDisplayModule = {
             this.saveSettings();
         });
 
-        // 绑定精简模式的事件
         $(document).on('change', '#model_display_match_mode', (e) => {
             this.getSettings().matchDisplayMode = $(e.currentTarget).val();
             this.saveSettings();
@@ -377,8 +375,8 @@ export const ModelDisplayModule = {
 
         let iconHtml = '';
         let activePrefix = settings.prefix;
+        let activeSuffix = settings.suffix; // 新增：分离后缀变量以便于被精简模式接管
 
-        // 记录否有发生了匹配和匹配到的关键词来源，用于精简模式的判断
         let hasMatch = false;
         let matchedKeywordForDisplay = '';
         let matchedRuleCache = null;
@@ -424,20 +422,26 @@ export const ModelDisplayModule = {
 
         // ====== 核心拦截/过滤修改区域 ======
         if (hasMatch && settings.matchDisplayMode && settings.matchDisplayMode !== 'normal') {
+            // 一旦进入精简模式，立刻抛弃全局后缀
+            activeSuffix = '';
+
             if (settings.matchDisplayMode === 'icon_only') {
-                // 精简模式：丢弃冗长的displayName。若是图标则仅显图标；若是文本规则文本，activePrefix则会接管显示
                 displayName = '';
+                // 仅显示图标的情况下，如果在自定义规则里选的是"文本前缀"模式且有填值，则使用该自定义文本，否则抛弃全局前缀
+                if (matchedRuleCache && matchedRuleCache.type === 'text') {
+                    activePrefix = matchedRuleCache.customTextPrefix !== undefined ? matchedRuleCache.customTextPrefix : '';
+                } else {
+                    activePrefix = '';
+                }
             } else if (settings.matchDisplayMode === 'keyword_only') {
-                // 精简关键词模式：使用捕获的短关键词替换掉原本又臭又长的模型名字符串
                 displayName = matchedKeywordForDisplay;
-                iconHtml = ''; // 强制抛弃匹配到的图标
-                // 恢复为默认的全局前缀，防止被自定义规则或图标逻辑置空
-                activePrefix = settings.prefix;
+                iconHtml = '';
+                activePrefix = ''; // 关键词模式下强制抛弃所有全局前缀
             }
         }
         // =====================================
 
-        const fullText = `${activePrefix}${displayName}${settings.suffix}`;
+        const fullText = `${activePrefix}${displayName}${activeSuffix}`;
 
         iconSvg.style.display = 'none';
 
