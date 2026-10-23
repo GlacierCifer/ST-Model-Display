@@ -3,7 +3,7 @@ import { extension_settings } from '../../../../extensions.js';
 
 export const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.5.0', // 优化精简模式下的前后缀屏蔽逻辑
+    CURRENT_SCRIPT_VERSION: '1.6.0', // 优化精简模式下的前后缀屏蔽逻辑
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
