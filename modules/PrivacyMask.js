@@ -105,10 +105,23 @@ export const PrivacyMaskModule = {
         const target = document.getElementById('chat') || document.body;
         this._observer = new MutationObserver(() => {
             // Nothing to do until the user confirms a mask.
-            if (!this._applied || document.hidden) return;
+            if (!this._applied) return;
             this.schedule(300);
         });
-        this._observer.observe(target, { childList: true, subtree: true, characterData: true });
+        // Expanding/collapsing a folder only flips classes; that path uses this.
+        document.addEventListener('stmd:layout-changed', () => {
+            if (!this._applied) return;
+            this.schedule(120);
+        });
+        // Expanding a folder only flips a class (display:none -> block), which
+        // produces no childList mutation — watch attributes as well.
+        this._observer.observe(target, {
+            childList: true,
+            subtree: true,
+            characterData: true,
+            attributes: true,
+            attributeFilter: ['class', 'style'],
+        });
         window.addEventListener('scroll', () => this.schedule(250), { passive: true });
         window.addEventListener('resize', () => this.schedule(250), { passive: true });
     },

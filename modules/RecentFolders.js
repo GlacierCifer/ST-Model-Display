@@ -374,6 +374,7 @@ export const RecentFoldersModule = {
             head.classList.toggle('stmd-open', next);
             body.classList.toggle('stmd-open', next);
             this.setOpen(folder.avatar, next);
+            document.dispatchEvent(new CustomEvent('stmd:layout-changed'));
         };
         head.addEventListener('click', toggle);
         head.addEventListener('keydown', (event) => {
