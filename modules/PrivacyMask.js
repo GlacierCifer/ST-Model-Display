@@ -1,5 +1,6 @@
 import { saveSettingsDebounced } from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
+import { power_user } from '../../../../../scripts/power-user.js';
 
 // Screenshot privacy: mask sensitive names/avatars in the visible viewport.
 //
@@ -159,16 +160,25 @@ export const PrivacyMaskModule = {
         if (!source.includes('{{char}}') && !source.includes('{{user}}')) return source;
         const context = window.SillyTavern?.getContext?.() || {};
         const names = (context.characters || []).map(item => item?.name).filter(Boolean);
-        const userName = context.name1 || '';
+        const isMacro = (value) => !value || /^\{\{.*\}\}$/.test(String(value));
+        const personaNames = Object.values(power_user?.personas || {})
+            .map(value => String(value).trim())
+            .filter(value => value && !isMacro(value));
+        const userName = isMacro(context.name1) ? '' : String(context.name1).trim();
+        const userNames = [...new Set([userName, ...personaNames].filter(Boolean))];
+
         let output = source;
         if (output.includes('{{char}}')) {
             const alternatives = names.length
                 ? names.map(name => escapeRegExp(name)).sort((a, b) => b.length - a.length).join('|')
-                : '.+?';
+                : escapeRegExp('{{char}}');
             output = output.split('{{char}}').join(`(?:${alternatives})`);
         }
         if (output.includes('{{user}}')) {
-            output = output.split('{{user}}').join(userName ? escapeRegExp(userName) : '.+?');
+            const alternatives = userNames.length
+                ? userNames.map(name => escapeRegExp(name)).sort((a, b) => b.length - a.length).join('|')
+                : escapeRegExp('{{user}}');
+            output = output.split('{{user}}').join(`(?:${alternatives})`);
         }
         return output;
     },
@@ -249,11 +259,13 @@ export const PrivacyMaskModule = {
             wrapper.textContent = text.slice(start, end);
             wrappedNodes.set(wrapper, text.slice(start, end));
             fragment.appendChild(wrapper);
-            if (settings.avatarMode === 'rule') this.maskAvatarsNear(wrapper);
             cursor = end;
         }
         if (cursor < text.length) fragment.appendChild(document.createTextNode(text.slice(cursor)));
         parent.replaceChild(fragment, node);
+
+        // The spans only get a usable closest() once they are in the document.
+        if (settings.avatarMode === 'rule') this.maskAvatarsNear(parent);
     },
 
     /** Blurs avatars inside the same card as a masked name. */
