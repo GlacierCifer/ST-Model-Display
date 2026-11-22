@@ -105,14 +105,22 @@ export const RecentFoldersModule = {
         }
         if (!Array.isArray(chats) || chats.length === 0) return;
 
-        const folders = this.buildFolders(chats);
+        const { folders } = this.buildFolders(chats);
         if (folders.length === 0) return;
+
+        // Group chats keep SillyTavern's own rows (their click handlers stay
+        // attached), so we only rebuild the character portion.
+        const groupRows = [...list.querySelectorAll(':scope > .recentChat')]
+            .filter(row => row.dataset.group);
 
         this._applying = true;
         try {
             const fragment = document.createDocumentFragment();
             for (const folder of folders) {
                 fragment.appendChild(this.renderFolder(folder));
+            }
+            for (const row of groupRows) {
+                fragment.appendChild(row);
             }
             list.replaceChildren(fragment);
             list.dataset.stmdBuilt = '1';
@@ -133,12 +141,17 @@ export const RecentFoldersModule = {
         return await response.json();
     },
 
-    /** Groups chats by character, newest activity first. */
+    /** Groups character chats by character; group chats stay as plain rows. */
     buildFolders(chats) {
         const settings = this.getSettings();
         const byAvatar = new Map();
+        const others = [];
         for (const chat of chats) {
-            if (!chat || !chat.avatar) continue; // group chats keep their own row
+            const isGroup = Boolean(chat && (chat.is_group || chat.group));
+            if (!chat || isGroup || !chat.avatar) {
+                if (chat) others.push(chat);
+                continue;
+            }
             if (!byAvatar.has(chat.avatar)) byAvatar.set(chat.avatar, []);
             byAvatar.get(chat.avatar).push(chat);
         }
@@ -158,7 +171,7 @@ export const RecentFoldersModule = {
             .sort((a, b) => this.indexOfChat(chats, a.chats[0]) - this.indexOfChat(chats, b.chats[0]));
 
         const limit = Math.max(1, Number(settings.maxFolders) || 3);
-        return folders.slice(0, limit);
+        return { folders: folders.slice(0, limit), others };
     },
 
     indexOfChat(chats, target) {
