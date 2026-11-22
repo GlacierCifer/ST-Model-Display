@@ -208,18 +208,52 @@ export const PrivacyMaskModule = {
                 node.nodeValue = replaced;
                 if (settings.avatarMode === 'rule') this.maskAvatarsNear(node.parentElement);
             } else {
-                // Blur / black bar hide the original text, never the replacement.
-                const parent = node.parentElement;
-                if (!parent) continue;
-                const wrapper = document.createElement('span');
-                wrapper.className = STYLE_CLASS[settings.style] || STYLE_CLASS.blur;
-                wrapper.textContent = text;
-                parent.insertBefore(wrapper, node);
-                parent.removeChild(node);
-                wrappedNodes.set(wrapper, text);
-                if (settings.avatarMode === 'rule') this.maskAvatarsNear(wrapper);
+                // Only the matched slice gets blurred / barred, not the whole node.
+                this.wrapRanges(node, text, rules, settings);
             }
         }
+    },
+
+    /** Wraps only the matched slices, leaving the rest of the text readable. */
+    wrapRanges(node, text, rules, settings) {
+        const parent = node.parentElement;
+        if (!parent) return;
+
+        const ranges = [];
+        for (const rule of rules) {
+            rule.regex.lastIndex = 0;
+            let match;
+            while ((match = rule.regex.exec(text)) !== null) {
+                if (match[0].length === 0) break;
+                ranges.push([match.index, match.index + match[0].length]);
+                if (!rule.regex.global) break;
+            }
+        }
+        if (ranges.length === 0) return;
+
+        ranges.sort((a, b) => a[0] - b[0]);
+        const merged = [];
+        for (const [start, end] of ranges) {
+            const last = merged[merged.length - 1];
+            if (last && start <= last[1]) last[1] = Math.max(last[1], end);
+            else merged.push([start, end]);
+        }
+
+        const className = STYLE_CLASS[settings.style] || STYLE_CLASS.blur;
+        const fragment = document.createDocumentFragment();
+        let cursor = 0;
+        for (const [start, end] of merged) {
+            if (start > cursor) fragment.appendChild(document.createTextNode(text.slice(cursor, start)));
+            const wrapper = document.createElement('span');
+            wrapper.className = className;
+            wrapper.textContent = text.slice(start, end);
+            wrappedNodes.set(wrapper, text.slice(start, end));
+            fragment.appendChild(wrapper);
+            if (settings.avatarMode === 'rule') this.maskAvatarsNear(wrapper);
+            cursor = end;
+        }
+        if (cursor < text.length) fragment.appendChild(document.createTextNode(text.slice(cursor)));
+        parent.replaceChild(fragment, node);
     },
 
     /** Blurs avatars inside the same card as a masked name. */
