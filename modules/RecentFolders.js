@@ -134,7 +134,12 @@ export const RecentFoldersModule = {
             const fragment = document.createDocumentFragment();
             folders.forEach((folder, index) => {
                 const entry = this.renderFolder(folder);
-                if (index >= initial) entry.head.classList.add('stmd-hidden');
+                if (index >= initial) {
+                    entry.head.classList.add('stmd-hidden');
+                    entry.body.classList.add('stmd-hidden');
+                    entry.head.classList.remove('stmd-open');
+                    entry.body.classList.remove('stmd-open');
+                }
                 fragment.appendChild(entry.node);
             });
             if (folders.length > initial) {
@@ -316,6 +321,17 @@ export const RecentFoldersModule = {
             list?.querySelectorAll('.stmd-folder-head.stmd-hidden, .stmd-folder-head.stmd-revealed').forEach(head => {
                 head.classList.toggle('stmd-hidden', rotated);
                 head.classList.toggle('stmd-revealed', !rotated);
+                // A folder's body must travel with its head, otherwise an opened
+                // folder keeps its chat list on screen after collapsing.
+                const body = head.nextElementSibling;
+                if (body && body.classList.contains('stmd-folder-body')) {
+                    body.classList.toggle('stmd-hidden', rotated);
+                    if (rotated) {
+                        body.classList.remove('stmd-open');
+                        head.classList.remove('stmd-open');
+                        this.setOpen(head.dataset.avatar, false);
+                    }
+                }
                 // Revealed folders get their total count only now.
                 if (!rotated) {
                     this.ensureFolderTotal(head, head.dataset.avatar);

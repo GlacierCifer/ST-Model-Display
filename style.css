@@ -204,7 +204,8 @@
 }
 
 /* Themes set `display: flex` on .recentChat, so this needs !important. */
-.stmd-folder-head.stmd-hidden {
+.stmd-folder-head.stmd-hidden,
+.stmd-folder-body.stmd-hidden {
     display: none !important;
 }
 
