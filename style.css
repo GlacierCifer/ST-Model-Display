@@ -195,8 +195,9 @@
     transform: rotate(180deg);
 }
 
+/* Themes set `display: flex` on .recentChat, so this needs !important. */
 .stmd-folder-head.stmd-hidden {
-    display: none;
+    display: none !important;
 }
 
 .stmd-folder-body {
