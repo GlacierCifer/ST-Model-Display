@@ -103,7 +103,11 @@ export const PrivacyMaskModule = {
     watch() {
         if (this._observer) return;
         const target = document.getElementById('chat') || document.body;
-        this._observer = new MutationObserver(() => this.schedule(300));
+        this._observer = new MutationObserver(() => {
+            // Nothing to do until the user confirms a mask.
+            if (!this._applied || document.hidden) return;
+            this.schedule(300);
+        });
         this._observer.observe(target, { childList: true, subtree: true, characterData: true });
         window.addEventListener('scroll', () => this.schedule(250), { passive: true });
         window.addEventListener('resize', () => this.schedule(250), { passive: true });

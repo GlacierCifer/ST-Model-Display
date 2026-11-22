@@ -92,6 +92,8 @@ export const RecentFoldersModule = {
         }
         this._observer = new MutationObserver(() => {
             if (this._applying) return;
+            // Chat streaming mutates #chat constantly; only the home screen matters.
+            if (!document.querySelector('.welcomePanel')) return;
             this.schedule();
         });
         this._observer.observe(chat, { childList: true, subtree: true });
