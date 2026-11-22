@@ -323,6 +323,11 @@ export const RecentFoldersModule = {
                 const file = String(row.dataset.file || '').replace(/\.jsonl$/i, '');
                 if (names.has(file)) row.remove();
             });
+            // An empty folder is dead weight: drop the head with its body.
+            if (body.querySelectorAll('.recentChat').length === 0) {
+                head.remove();
+                body.remove();
+            }
         });
     },
 
