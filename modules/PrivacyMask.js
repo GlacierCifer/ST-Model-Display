@@ -123,7 +123,12 @@ export const PrivacyMaskModule = {
             attributes: true,
             attributeFilter: ['class', 'style'],
         });
-        window.addEventListener('scroll', () => this.schedule(250), { passive: true });
+        // Scroll events do not bubble, and the chat scrolls inside #chat, so a
+        // window listener never fires. Capture them on the way down instead.
+        document.addEventListener('scroll', () => {
+            if (!this._applied) return;
+            this.schedule(200);
+        }, { capture: true, passive: true });
         window.addEventListener('resize', () => this.schedule(250), { passive: true });
     },
 
