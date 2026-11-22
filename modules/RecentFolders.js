@@ -111,7 +111,7 @@ export const RecentFoldersModule = {
         }
         if (!Array.isArray(chats) || chats.length === 0) return;
 
-        const { folders } = this.buildFolders(chats);
+        const { folders, initial } = this.buildFolders(chats);
         if (folders.length === 0) return;
 
         // Group chats keep SillyTavern's own rows (their click handlers stay
@@ -122,8 +122,13 @@ export const RecentFoldersModule = {
         this._applying = true;
         try {
             const fragment = document.createDocumentFragment();
-            for (const folder of folders) {
-                fragment.appendChild(this.renderFolder(folder));
+            folders.forEach((folder, index) => {
+                const el = this.renderFolder(folder);
+                if (index >= initial) el.classList.add('stmd-hidden');
+                fragment.appendChild(el);
+            });
+            if (folders.length > initial) {
+                fragment.appendChild(this.renderShowMore(folders.length - initial));
             }
             for (const row of groupRows) {
                 fragment.appendChild(row);
@@ -182,7 +187,7 @@ export const RecentFoldersModule = {
             });
 
         const limit = Math.max(1, Number(settings.maxFolders) || 3);
-        return { folders: folders.slice(0, limit), others };
+        return { folders, others, initial: limit };
     },
 
     chatKey(chat) {
@@ -282,6 +287,27 @@ export const RecentFoldersModule = {
         return chats.indexOf(target);
     },
 
+    /** Same markup as SillyTavern's own "show more" toggle. */
+    renderShowMore(count) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'menu_button menu_button_icon showMoreChats stmd-show-more';
+        button.title = `还有 ${count} 个角色`;
+        button.innerHTML = '<small class="fa-solid fa-chevron-down fa-fw fa-1x"></small>';
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            const list = button.closest('.recentChatList');
+            const rotated = button.classList.contains('rotated');
+            list?.querySelectorAll('.stmd-folder.stmd-hidden, .stmd-folder.stmd-revealed').forEach(folder => {
+                folder.classList.toggle('stmd-hidden', rotated);
+                folder.classList.toggle('stmd-revealed', !rotated);
+            });
+            button.classList.toggle('rotated', !rotated);
+            button.title = rotated ? `还有 ${count} 个角色` : '收起';
+        });
+        return button;
+    },
+
     renderFolder(folder) {
         const open = this.isOpen(folder.avatar);
         const wrapper = document.createElement('div');
@@ -300,9 +326,8 @@ export const RecentFoldersModule = {
             <div class="recentChatInfo">
                 <div class="chatNameContainer">
                     <div class="chatName">
-                        <i class="fa-solid fa-folder stmd-folder-icon"></i>
                         <strong class="characterName">${escape(folder.name)}</strong>
-                        <span class="stmd-folder-count">${folder.chats.length}</span>
+                        <span class="stmd-folder-count">${folder.chats.length} 个聊天</span>
                     </div>
                     <div class="chatActions">
                         <button class="menu_button menu_button_icon pinChat stmd-folder-pin ${folder.pinned ? 'active' : ''}" title="置顶角色" type="button">
@@ -462,11 +487,11 @@ export const RecentFoldersModule = {
                     把主页的「最近聊天」改成按角色分组：每个角色一个文件夹，展开后可以看到该角色的全部聊天。
                 </div>
                 <label class="checkbox_label" for="stmd_folders_max">
-                    <span>显示的角色数量</span>
+                    <span>初始显示的角色数量（其余点「展开更多」显示）</span>
                 </label>
                 <input id="stmd_folders_max" class="text_pole" type="number" min="1" max="20" step="1" value="${Number(settings.maxFolders) || 3}">
                 <div class="sub-setting-description">
-                    每个文件夹里最多能看到的聊天数量：
+                    每次拉取的最近聊天条数（决定能覆盖多少旧聊天）：
                 </div>
                 <input id="stmd_folders_chats" class="text_pole" type="number" min="20" max="1000" step="10" value="${Number(settings.maxChats) || 200}">
             </div>`;
