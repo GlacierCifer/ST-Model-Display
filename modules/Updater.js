@@ -57,8 +57,18 @@ export const UpdaterModule = {
         return new URL('../manifest.json', import.meta.url).href;
     },
 
+    /** Mirrors used for the version check (read-only, no account needed). */
+    get manifestSources() {
+        const { owner, repo, branch } = this;
+        return [
+            `https://gcore.jsdelivr.net/gh/${owner}/${repo}@${branch}/manifest.json`,
+            `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${branch}/manifest.json`,
+            `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/manifest.json`,
+        ];
+    },
+
     get remoteManifestUrl() {
-        return `https://raw.githubusercontent.com/${this.owner}/${this.repo}/${this.branch}/manifest.json`;
+        return this.manifestSources[this.manifestSources.length - 1];
     },
 
     get repoUrl() {
@@ -77,14 +87,17 @@ export const UpdaterModule = {
     },
 
     async remoteVersion() {
-        try {
-            const response = await fetch(this.remoteManifestUrl, { cache: 'no-store' });
-            if (!response.ok) return null;
-            const manifest = await response.json();
-            return manifest.version || null;
-        } catch {
-            return null;
+        for (const url of this.manifestSources) {
+            try {
+                const response = await fetch(url, { cache: 'no-store' });
+                if (!response.ok) continue;
+                const manifest = await response.json();
+                if (manifest.version) return manifest.version;
+            } catch {
+                // try the next mirror
+            }
         }
+        return null;
     },
 
     async check() {
