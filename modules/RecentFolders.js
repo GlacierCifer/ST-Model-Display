@@ -260,6 +260,24 @@ export const RecentFoldersModule = {
         }
     },
 
+    /** Deletes every chat inside one character folder, after confirmation. */
+    async deleteFolderChats(folder) {
+        const index = characters?.findIndex(c => c.avatar === folder.avatar) ?? -1;
+        if (index === -1) return;
+        const count = folder.chats.length;
+        const message = `确定要删除「${folder.name}」的全部聊天记录吗？\n共 ${count} 个聊天，删除后无法恢复。`;
+        if (!window.confirm(message)) return;
+
+        const results = await Promise.allSettled(
+            folder.chats.map(chat => deleteCharacterChatByName(index, this.chatKey(chat)))
+        );
+        const failed = results.filter(item => item.status === 'rejected').length;
+        if (failed > 0) {
+            console.warn(`[模块-主页文件夹] ${failed} 个聊天删除失败`);
+        }
+        this.refresh();
+    },
+
     indexOfChat(chats, target) {
         return chats.indexOf(target);
     },
@@ -290,6 +308,9 @@ export const RecentFoldersModule = {
                         <button class="menu_button menu_button_icon pinChat stmd-folder-pin ${folder.pinned ? 'active' : ''}" title="置顶角色" type="button">
                             <i class="fa-solid fa-thumbtack fa-fw"></i>
                         </button>
+                        <button class="menu_button menu_button_icon deleteChat stmd-folder-delete" title="删除该角色的全部聊天" type="button">
+                            <i class="fa-solid fa-trash fa-fw"></i>
+                        </button>
                     </div>
                 </div>
             </div>
@@ -313,6 +334,12 @@ export const RecentFoldersModule = {
         pinButton?.addEventListener('click', (event) => {
             event.stopPropagation();
             this.toggleFolderPin(folder.avatar);
+        });
+
+        const deleteButton = head.querySelector('.stmd-folder-delete');
+        deleteButton?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            void this.deleteFolderChats(folder);
         });
 
         const body = document.createElement('div');
