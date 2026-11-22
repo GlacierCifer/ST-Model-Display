@@ -209,3 +209,12 @@
 .stmd-show-more.rotated small {
     transform: rotate(180deg);
 }
+
+/* Pin buttons read as "not set" until pinned. */
+.stmd-folder .pinChat:not(.active) {
+    opacity: 0.4;
+}
+
+.stmd-folder .pinChat.active {
+    opacity: 1;
+}
