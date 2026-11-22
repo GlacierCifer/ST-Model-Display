@@ -56,6 +56,11 @@ export const RecentFoldersModule = {
     _observer: null,
     _timer: null,
     _applying: false,
+    _force: false,
+    _totals: new Map(),
+    _allChats: new Map(),
+    _loading: new Set(),
+    _pageSize: 20,
 
     getSettings() {
         if (!extension_settings[this.name]) {
@@ -238,8 +243,9 @@ export const RecentFoldersModule = {
         this.refresh();
     },
 
-    async renameChat(chat, chatName) {
-        const index = characters?.findIndex(c => c.avatar === chat.avatar) ?? -1;
+    async renameChat(chat, chatName, avatarOverride) {
+        const avatar = chat.avatar || avatarOverride || '';
+        const index = characters?.findIndex(c => c.avatar === avatar) ?? -1;
         if (index === -1) return;
         const next = window.prompt('重命名聊天', chatName);
         if (!next || next.trim() === '' || next === chatName) return;
@@ -256,8 +262,9 @@ export const RecentFoldersModule = {
         }
     },
 
-    async deleteChat(chat, chatName) {
-        const index = characters?.findIndex(c => c.avatar === chat.avatar) ?? -1;
+    async deleteChat(chat, chatName, avatarOverride) {
+        const avatar = chat.avatar || avatarOverride || '';
+        const index = characters?.findIndex(c => c.avatar === avatar) ?? -1;
         if (index === -1) return;
         if (!window.confirm(`确定要删除聊天「${chatName}」吗？`)) return;
         try {
@@ -304,6 +311,10 @@ export const RecentFoldersModule = {
             list?.querySelectorAll('.stmd-folder.stmd-hidden, .stmd-folder.stmd-revealed').forEach(folder => {
                 folder.classList.toggle('stmd-hidden', rotated);
                 folder.classList.toggle('stmd-revealed', !rotated);
+                // Revealed folders get their total count only now.
+                if (!rotated) {
+                    this.ensureFolderTotal(folder.querySelector('.stmd-folder-head'), folder.dataset.avatar);
+                }
             });
             button.classList.toggle('rotated', !rotated);
             button.title = rotated ? `还有 ${count} 个角色` : '收起';
@@ -331,6 +342,7 @@ export const RecentFoldersModule = {
                     <div class="chatName">
                         <strong class="characterName">${escape(folder.name)}</strong>
                         <span class="stmd-folder-count">${folder.chats.length} 个聊天</span>
+                        <span class="stmd-folder-progress"></span>
                     </div>
                     <div class="chatActions">
                         <button class="menu_button menu_button_icon pinChat stmd-folder-pin ${folder.pinned ? 'active' : ''}" title="置顶角色" type="button">
@@ -373,31 +385,123 @@ export const RecentFoldersModule = {
         const body = document.createElement('div');
         body.className = 'stmd-folder-body';
         for (const chat of folder.chats) {
-            body.appendChild(this.renderChatRow(chat));
+            body.appendChild(this.renderChatRow(chat, folder.avatar));
         }
+        // Reaching the bottom keeps pulling that character's older chats.
+        body.addEventListener('scroll', () => {
+            if (body.scrollTop + body.clientHeight >= body.scrollHeight - 32) {
+                void this.loadMore(wrapper, folder);
+            }
+        });
+
+        this.ensureFolderTotal(head, folder.avatar);
 
         wrapper.append(head, body);
         return wrapper;
     },
 
-    renderChatRow(chat) {
+    /** Total chats of a character; cheap (file names only) and cached. */
+    async fetchTotal(avatar) {
+        if (this._totals.has(avatar)) return this._totals.get(avatar);
+        try {
+            const response = await fetch('/api/characters/chats', {
+                method: 'POST',
+                headers: getRequestHeaders(),
+                body: JSON.stringify({ avatar_url: avatar, simple: true }),
+            });
+            const list = await response.json();
+            const total = Array.isArray(list) ? list.length : 0;
+            this._totals.set(avatar, total);
+            return total;
+        } catch (e) {
+            return null;
+        }
+    },
+
+    async ensureFolderTotal(head, avatar) {
+        const total = await this.fetchTotal(avatar);
+        if (total === null || !head?.isConnected) return;
+        const span = head.querySelector('.stmd-folder-count');
+        if (span) span.textContent = `${total} 个聊天`;
+    },
+
+    /** Full chat list (with metadata) for one character; fetched on demand. */
+    async fetchAllChats(avatar) {
+        if (this._allChats.has(avatar)) return this._allChats.get(avatar);
+        const response = await fetch('/api/characters/chats', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ avatar_url: avatar, metadata: true }),
+        });
+        const list = await response.json();
+        const chats = (Array.isArray(list) ? list : [])
+            .filter(chat => chat && chat.file_name)
+            .sort((a, b) => Number(b.last_mes || 0) - Number(a.last_mes || 0));
+        this._allChats.set(avatar, chats);
+        this._totals.set(avatar, chats.length);
+        return chats;
+    },
+
+    async loadMore(wrapper, folder) {
+        const avatar = folder.avatar;
+        if (this._loading.has(avatar)) return;
+        const body = wrapper.querySelector('.stmd-folder-body');
+        if (!body) return;
+
+        this._loading.add(avatar);
+        const spinner = document.createElement('div');
+        spinner.className = 'stmd-loading';
+        spinner.innerHTML = '<span></span><span></span><span></span>';
+        body.appendChild(spinner);
+        try {
+            const all = await this.fetchAllChats(avatar);
+            const rendered = new Set([...body.querySelectorAll('.recentChat')].map(row => row.dataset.file));
+            const next = all
+                .filter(chat => !rendered.has(String(chat.file_name || '').replace(/\.jsonl$/i, '')))
+                .slice(0, this._pageSize);
+            for (const chat of next) {
+                body.insertBefore(this.renderChatRow(chat, avatar), spinner);
+            }
+            const shown = body.querySelectorAll('.recentChat').length;
+            this.showProgress(wrapper, shown, all.length);
+            const countSpan = wrapper.querySelector('.stmd-folder-count');
+            if (countSpan) countSpan.textContent = `${all.length} 个聊天`;
+        } catch (e) {
+            console.warn('[模块-主页文件夹] 加载更多失败:', e);
+        } finally {
+            spinner.remove();
+            this._loading.delete(avatar);
+        }
+    },
+
+    showProgress(wrapper, shown, total) {
+        const el = wrapper.querySelector('.stmd-folder-progress');
+        if (!el) return;
+        el.textContent = `${shown}/${total}`;
+        el.classList.add('visible');
+        clearTimeout(el._hideTimer);
+        el._hideTimer = setTimeout(() => el.classList.remove('visible'), 2500);
+    },
+
+    renderChatRow(chat, avatarOverride = '') {
         const fileName = String(chat.file_name || chat.chat_name || '');
         const chatName = String(chat.chat_name || fileName.replace(/\.jsonl$/i, ''));
+        const avatar = chat.avatar || avatarOverride || '';
         const row = document.createElement('div');
         row.className = 'recentChat stmd-folder-row';
-        row.dataset.avatar = chat.avatar || '';
+        row.dataset.avatar = avatar;
         row.dataset.file = chatName;
         row.title = fileName;
-        const thumb = thumbnailUrl(chat.avatar);
+        const thumb = thumbnailUrl(avatar);
         const message = String(chat.mes || '').slice(0, 300);
         const dateLong = formatDate(chat.last_mes, true);
         const dateShort = formatDate(chat.last_mes);
-        const info = characters?.find(c => c.avatar === chat.avatar);
+        const info = characters?.find(c => c.avatar === avatar);
         const charName = info?.name || chat.char_name || '';
         const count = Number(chat.chat_items) || 0;
-        const pinned = this.isChatPinned(chat.avatar, chatName);
+        const pinned = this.isChatPinned(avatar, chatName);
         row.innerHTML = `
-            <div class="avatar"><img src="${escape(thumb)}" data-fallback="${escape(characterImage(chat.avatar))}" alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback&&this.src!==this.dataset.fallback){this.src=this.dataset.fallback}"></div>
+            <div class="avatar"><img src="${escape(thumb)}" data-fallback="${escape(characterImage(avatar))}" alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback&&this.src!==this.dataset.fallback){this.src=this.dataset.fallback}"></div>
             <div class="recentChatInfo">
                 <div class="chatNameContainer">
                     <div class="chatName" title="${escape(fileName)}">
@@ -432,19 +536,19 @@ export const RecentFoldersModule = {
 
         row.querySelector('.pinChat')?.addEventListener('click', (event) => {
             event.stopPropagation();
-            this.toggleChatPin(chat.avatar, chatName);
+            this.toggleChatPin(avatar, chatName);
         });
         row.querySelector('.renameChat')?.addEventListener('click', (event) => {
             event.stopPropagation();
-            void this.renameChat(chat, chatName);
+            void this.renameChat(chat, chatName, avatar);
         });
         row.querySelector('.deleteChat')?.addEventListener('click', (event) => {
             event.stopPropagation();
-            void this.deleteChat(chat, chatName);
+            void this.deleteChat(chat, chatName, avatar);
         });
         row.addEventListener('click', (event) => {
             event.stopPropagation();
-            void this.openChat(chat.avatar, fileName);
+            void this.openChat(avatar, fileName);
         });
         return row;
     },
