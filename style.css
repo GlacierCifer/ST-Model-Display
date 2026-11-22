@@ -259,3 +259,9 @@
     0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
     40% { transform: translateY(-4px); opacity: 1; }
 }
+
+/* The folder already shows the character avatar; repeating it on every chat
+   row makes long lists noisy. */
+.stmd-folder .stmd-folder-row .avatar {
+    display: none !important;
+}
