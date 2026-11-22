@@ -282,7 +282,9 @@ export const RecentFoldersModule = {
         if (index === -1) return;
         if (!window.confirm(`确定要删除聊天「${chatName}」吗？`)) return;
         try {
-            await this.deleteChatFile(avatar, this.chatFileOf({ dataset: { file: chatName } }));
+            const file = this.chatFileOf({ dataset: { file: chatName } });
+            await this.deleteChatFile(avatar, file);
+            this.dropRows(avatar, [file]);
             this.forgetCache(avatar);
             this.refresh();
         } catch (e) {
@@ -308,6 +310,20 @@ export const RecentFoldersModule = {
             body: JSON.stringify({ avatar_url: avatar, chatfile }),
         });
         if (!response.ok) throw new Error(`删除失败：HTTP ${response.status}`);
+    },
+
+    /** Drops the rows of deleted chats; ST's own list is not re-fetched for us. */
+    dropRows(avatar, files) {
+        const names = new Set(files.map(file => String(file).replace(/\.jsonl$/i, '')));
+        document.querySelectorAll('.stmd-folder-head').forEach(head => {
+            if ((head.dataset.avatar || '') !== avatar) return;
+            const body = head.nextElementSibling;
+            if (!body) return;
+            body.querySelectorAll('.recentChat').forEach(row => {
+                const file = String(row.dataset.file || '').replace(/\.jsonl$/i, '');
+                if (names.has(file)) row.remove();
+            });
+        });
     },
 
     /** Opens a brand-new chat for the folder's character. */
@@ -410,6 +426,12 @@ export const RecentFoldersModule = {
 
             const failed = results.filter(item => item.status === 'rejected').length;
             if (failed > 0) console.warn(`[模块-主页文件夹] ${failed} 个聊天删除失败`);
+            // Leave selection mode first: the rebuild is skipped while it is on.
+            const removed = results
+                .map((result, position) => result.status === 'fulfilled' ? files[position] : null)
+                .filter(Boolean);
+            if (removed.length > 0) this.dropRows(folder.avatar, removed);
+            this.exitSelection(body);
             this.forgetCache(folder.avatar);
             this.refresh();
         } catch (e) {
@@ -426,6 +448,11 @@ export const RecentFoldersModule = {
         const results = await Promise.allSettled(
             folder.chats.map(chat => this.deleteChatFile(folder.avatar, String(chat.file_name || chat.chat_name || '')))
         );
+        const files = folder.chats.map(chat => String(chat.file_name || chat.chat_name || ''));
+        const removed = results
+            .map((result, position) => result.status === 'fulfilled' ? files[position] : null)
+            .filter(Boolean);
+        if (removed.length > 0) this.dropRows(folder.avatar, removed);
         this.forgetCache(folder.avatar);
         const failed = results.filter(item => item.status === 'rejected').length;
         if (failed > 0) {
