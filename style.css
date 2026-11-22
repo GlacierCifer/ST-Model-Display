@@ -147,3 +147,77 @@
 #misc_beautify_settings .checkbox_label span {
     overflow-wrap: anywhere;
 }
+
+/* ── 主页按角色分组 ───────────────────────────────────────── */
+.stmd-folder {
+    margin-bottom: 6px;
+    border: 1px solid var(--border_color, rgba(255, 255, 255, 0.12));
+    border-radius: 10px;
+    background: var(--SmartThemeBlurTintColor, rgba(0, 0, 0, 0.22));
+    overflow: hidden;
+}
+
+.stmd-folder-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.stmd-folder-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex: 0 0 auto;
+}
+
+.stmd-folder-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stmd-folder-count {
+    flex: 0 0 auto;
+    font-size: 0.78em;
+    opacity: 0.75;
+    padding: 1px 7px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.stmd-folder-chevron {
+    flex: 0 0 auto;
+    opacity: 0.6;
+    transition: transform 0.18s ease;
+}
+
+.stmd-folder.stmd-open .stmd-folder-chevron {
+    transform: rotate(180deg);
+}
+
+.stmd-folder-body {
+    display: none;
+    max-height: 42vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 6px 6px;
+}
+
+.stmd-folder.stmd-open .stmd-folder-body {
+    display: block;
+}
+
+.stmd-folder-body .recentChat {
+    margin-bottom: 4px;
+}

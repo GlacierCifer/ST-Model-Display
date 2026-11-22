@@ -6,6 +6,7 @@ import { PlaceholderModule, SloganInjectionModule } from './modules/Placeholder.
 import { DetailsFoldModule } from './modules/DetailsFold.js';
 import { GlobalFontModule, FontObserverModule } from './modules/GlobalFont.js';
 import { QuickRefreshModule } from './modules/QuickRefresh.js';
+import { RecentFoldersModule } from './modules/RecentFolders.js';
 
 const DETAILS_FOLD_SETTINGS_KEY = 'details_fold_enabled';
 const DEFAULT_DETAILS_FOLD_ENABLED = true;
@@ -40,6 +41,7 @@ function initializeCombinedExtension() {
         window.__stmdGlobalFont = GlobalFontModule;
 GlobalFontModule.init();
         FontObserverModule.init(GlobalFontModule.docContext);
+        RecentFoldersModule.init();
 
         const detailsFoldEnabled = getDetailsFoldEnabled();
 
@@ -162,6 +164,23 @@ GlobalFontModule.init();
                         </div>
                     </div>
 
+                    <label class="checkbox_label">
+                        <input
+                            type="checkbox"
+                            id="misc_recent_folders_toggle"
+                            ${RecentFoldersModule.getSettings().enabled ? 'checked' : ''}
+                        >
+                        <span>主页按角色分组</span>
+                    </label>
+
+                    <div
+                        id="recent_folders_settings_panel"
+                        class="sub-setting-container"
+                        style="${RecentFoldersModule.getSettings().enabled ? '' : 'display: none;'}"
+                    >
+                        ${RecentFoldersModule.renderSettingsHtml()}
+                    </div>
+
                 </div>
             </div>
         `;
@@ -282,6 +301,16 @@ GlobalFontModule.init();
 
         GlobalFontModule.saveSettings();
     });
+
+    $(document).on('change.miscBeautify', '#misc_recent_folders_toggle', (event) => {
+        const enabled = $(event.currentTarget).is(':checked');
+        RecentFoldersModule.getSettings().enabled = enabled;
+        $('#recent_folders_settings_panel').toggle(enabled);
+        RecentFoldersModule.save();
+        RecentFoldersModule.refresh();
+    });
+
+    RecentFoldersModule.bindSettingsEvents();
 
     $(document).on('click.miscBeautify', '.sub-setting-toggle', function () {
         $(this)
