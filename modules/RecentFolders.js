@@ -178,7 +178,7 @@ export const RecentFoldersModule = {
         const folders = [...byAvatar.entries()]
             .map(([avatar, items]) => {
                 const info = characters?.find(c => c.avatar === avatar);
-                const pinned = this.isChatPinned(avatar, items[0]?.chat_name || items[0]?.file_name);
+                const pinned = this.isFolderPinned(avatar);
                 return {
                     avatar,
                     name: info?.name || items[0].char_name || avatar.replace(/\.png$/i, ''),
