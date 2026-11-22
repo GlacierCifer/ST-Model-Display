@@ -91,10 +91,15 @@ export const RecentFoldersModule = {
             setTimeout(() => this.watch(), 1500);
             return;
         }
-        this._observer = new MutationObserver(() => {
+        this._observer = new MutationObserver((mutations) => {
             if (this._applying) return;
             // Chat streaming mutates #chat constantly; only the home screen matters.
             if (!document.querySelector('.welcomePanel')) return;
+            // Selection mode injects checkboxes and a bar; rebuilding the list
+            // here would throw away the listener that catches row clicks.
+            if (document.querySelector('.stmd-folder-body.stmd-selecting')) return;
+            const ours = mutations.every(m => m.target?.closest?.('.stmd-select-bar, .stmd-new-chat'));
+            if (ours) return;
             this.schedule();
         });
         this._observer.observe(chat, { childList: true, subtree: true });
@@ -107,6 +112,7 @@ export const RecentFoldersModule = {
 
     async run() {
         if (!this.getSettings().enabled) return;
+        if (document.querySelector('.stmd-folder-body.stmd-selecting')) return;
         const list = document.querySelector('.welcomePanel .recentChatList');
         if (!list) return;
         if (list.dataset.stmdBuilt === '1' && !this._force) return;
@@ -337,21 +343,26 @@ export const RecentFoldersModule = {
         body.querySelectorAll('.stmd-selected').forEach(row => row.classList.remove('stmd-selected'));
         body.querySelector('.stmd-select-count').textContent = '已选 0 项';
 
+
+
         // A checkbox per row: the rows belong to ST, so we never intercept their
         // click — the box stops propagation itself.
         body.querySelectorAll('.recentChat').forEach(row => {
             if (row.querySelector(':scope > .stmd-pick')) return;
+            const wrap = document.createElement('label');
+            wrap.className = 'stmd-pick';
             const box = document.createElement('input');
             box.type = 'checkbox';
-            box.className = 'stmd-pick';
-            box.addEventListener('click', (event) => {
-                event.stopPropagation();
+            box.className = 'stmd-pick-input';
+            box.addEventListener('change', () => {
                 row.classList.toggle('stmd-selected', box.checked);
                 const count = body.querySelectorAll('.recentChat.stmd-selected').length;
                 const label = body.querySelector('.stmd-select-count');
                 if (label) label.textContent = `已选 ${count} 项`;
             });
-            row.prepend(box);
+            wrap.addEventListener('click', (event) => event.stopPropagation());
+            wrap.appendChild(box);
+            row.prepend(wrap);
         });
     },
 
@@ -360,7 +371,8 @@ export const RecentFoldersModule = {
         const bar = body.querySelector('.stmd-select-bar');
         if (bar) bar.style.display = 'none';
         body.querySelectorAll('.stmd-selected').forEach(row => row.classList.remove('stmd-selected'));
-        body.querySelectorAll('.stmd-pick').forEach(box => box.remove());
+        body.querySelectorAll('.stmd-pick').forEach(wrap => wrap.remove());
+
     },
 
     async deleteSelected(folder, body) {

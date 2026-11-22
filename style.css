@@ -396,7 +396,8 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    margin-bottom: 6px;
+    margin-top: 8px;
+    margin-bottom: 4px;
     border: 1px dashed var(--SmartThemeBorderColor, #555);
     border-radius: 8px;
     cursor: pointer;
@@ -411,17 +412,36 @@
 .stmd-select-bar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     padding: 6px 8px;
     margin-bottom: 6px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--SmartThemeBlurTintColor, rgba(30, 30, 30, 0.92));
     font-size: 0.9em;
+    /* Stays reachable while the list inside the folder scrolls. */
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    backdrop-filter: blur(6px);
 }
 
 .stmd-select-count {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
+    margin-right: 4px;
     opacity: 0.8;
+    white-space: nowrap;
+}
+
+.stmd-select-bar .stmd-select-delete,
+.stmd-select-bar .stmd-select-cancel {
+    flex: 1 1 0;
+    justify-content: center;
+}
+
+.stmd-select-bar .stmd-select-delete {
+    background: var(--SmartThemeQuoteColor, #6d5efc) !important;
+    border-color: transparent !important;
+    color: #fff !important;
 }
 
 .stmd-folder-row.stmd-selected {
@@ -451,13 +471,46 @@
     position: relative;
 }
 
+/* A tall, wide hit area: easy to tap without intercepting the row's own click. */
 .stmd-pick {
     position: absolute;
-    left: 4px;
-    top: 50%;
-    transform: translateY(-50%);
+    left: 0;
+    top: 0;
+    bottom: 0;
     z-index: 2;
-    width: 18px;
-    height: 18px;
-    accent-color: var(--SmartThemeQuoteColor, #6d5efc);
+    width: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: 1px solid var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.12));
+    cursor: pointer;
+}
+
+.stmd-pick input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.stmd-pick::after {
+    content: '';
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    border: 2px solid var(--SmartThemeBorderColor, #777);
+    box-sizing: border-box;
+    pointer-events: none;
+}
+
+.stmd-pick:has(input:checked)::after {
+    background: var(--SmartThemeQuoteColor, #6d5efc);
+    border-color: var(--SmartThemeQuoteColor, #6d5efc);
+}
+
+.stmd-folder-body.stmd-selecting .recentChat {
+    padding-left: 52px;
 }
