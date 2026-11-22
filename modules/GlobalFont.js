@@ -1,6 +1,127 @@
 import * as script from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
 
+// Font payloads live outside settings.json.
+//
+// SillyTavern rewrites settings.json on every save, so keeping a 12 MB base64
+// font inside it made every save slow and every automatic backup 15 MB. The
+// payload now has two homes:
+//   - IndexedDB, so it loads instantly on the device that imported it;
+//   - the server's user/files folder, so other devices can pull it on demand.
+// Only the metadata (id / name / source tag / file reference) stays in settings.
+const FONT_DB = 'stmd-fonts';
+const FONT_STORE = 'fonts';
+const FONT_SOURCE = 'stmd'; // entries without this tag are never deleted
+
+const FontStore = {
+    _db: null,
+
+    open() {
+        if (this._db) return Promise.resolve(this._db);
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(FONT_DB, 1);
+            request.onupgradeneeded = () => {
+                const db = request.result;
+                if (!db.objectStoreNames.contains(FONT_STORE)) {
+                    db.createObjectStore(FONT_STORE, { keyPath: 'id' });
+                }
+            };
+            request.onsuccess = () => {
+                this._db = request.result;
+                resolve(this._db);
+            };
+            request.onerror = () => reject(request.error);
+        });
+    },
+
+    _store(mode) {
+        return this.open().then(db => db.transaction(FONT_STORE, mode).objectStore(FONT_STORE));
+    },
+
+    put(record) {
+        return this._store('readwrite').then(store => new Promise((resolve, reject) => {
+            const request = store.put(record);
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error);
+        }));
+    },
+
+    remove(id) {
+        return this._store('readwrite').then(store => new Promise((resolve, reject) => {
+            const request = store.delete(id);
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error);
+        }));
+    },
+
+    get(id) {
+        return this._store('readonly').then(store => new Promise((resolve, reject) => {
+            const request = store.get(id);
+            request.onsuccess = () => resolve(request.result || null);
+            request.onerror = () => reject(request.error);
+        }));
+    },
+
+    all() {
+        return this._store('readonly').then(store => new Promise((resolve, reject) => {
+            const request = store.getAll();
+            request.onsuccess = () => resolve(request.result || []);
+            request.onerror = () => reject(request.error);
+        }));
+    },
+};
+
+/** Cross-device copy, kept in SillyTavern's own user/files folder. */
+const FontSync = {
+    requestHeaders() {
+        try {
+            if (typeof script.getRequestHeaders === 'function') {
+                return script.getRequestHeaders();
+            }
+        } catch (e) { /* fall through */ }
+        return { 'Content-Type': 'application/json' };
+    },
+
+    async upload(fileName, base64) {
+        const response = await fetch('/api/files/upload', {
+            method: 'POST',
+            headers: this.requestHeaders(),
+            body: JSON.stringify({ name: fileName, data: base64 }),
+        });
+        if (!response.ok) {
+            throw new Error(`upload failed: ${response.status}`);
+        }
+        return (await response.json()).path;
+    },
+
+    async fetchText(fileName) {
+        const response = await fetch(`/user/files/${encodeURIComponent(fileName)}`);
+        if (!response.ok) return null;
+        return await response.text();
+    },
+
+    async fetchBase64(fileName) {
+        const response = await fetch(`/user/files/${encodeURIComponent(fileName)}`);
+        if (!response.ok) return null;
+        const buffer = await response.arrayBuffer();
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        return btoa(binary);
+    },
+
+    async remove(path) {
+        await fetch('/api/files/delete', {
+            method: 'POST',
+            headers: this.requestHeaders(),
+            body: JSON.stringify({ path }),
+        });
+    },
+};
+
 export const GlobalFontModule = {
     name: 'global_font',
     STYLE_ID: 'global_font_style_tag',
@@ -8,6 +129,8 @@ export const GlobalFontModule = {
     docContext: null,
     pendingFileData: null,
     _cssNameUpdateTimeout: null,
+    rulesCache: new Map(),
+    ready: false,
 
     defaultSettings: Object.freeze({
         enabled: false,
@@ -23,7 +146,8 @@ export const GlobalFontModule = {
         const settings = this.getSettings();
         if (!settings.enabled || settings.activeFontId === 'default') return null;
         const activeFont = settings.storedFonts.find(f => f.id === settings.activeFontId);
-        return activeFont ? this.extractFontName(activeFont.rules) : null;
+        if (!activeFont) return null;
+        return activeFont.name || this.extractFontName(this.rulesCache.get(activeFont.id));
     },
 
     init() {
@@ -33,7 +157,144 @@ export const GlobalFontModule = {
             this.docContext = document;
         }
         this.applyAllStyles();
+        this.loadFonts().then(() => {
+            this.ready = true;
+            this.applyAllStyles();
+        }).catch(e => console.warn('[模块-全局字体] 字体库加载失败:', e));
         console.log('[模块-全局字体] 初始化成功。');
+    },
+
+    /** Loads payloads from IndexedDB, pulling missing ones from the server. */
+    async loadFonts() {
+        const settings = this.getSettings();
+        const records = await FontStore.all();
+        const byId = new Map();
+        for (const record of records) {
+            if (record && record.source === FONT_SOURCE && record.rules) {
+                byId.set(record.id, record);
+                this.rulesCache.set(record.id, record.rules);
+            }
+        }
+
+        let migrated = 0;
+        for (const font of settings.storedFonts || []) {
+            if (font.rules) {
+                // Old format: the @font-face text (with the base64 payload) is
+                // still inline. Move it out and keep only the metadata.
+                await FontStore.put({
+                    id: font.id,
+                    name: font.name,
+                    rules: font.rules,
+                    source: FONT_SOURCE,
+                    savedAt: Date.now(),
+                });
+                this.rulesCache.set(font.id, font.rules);
+                delete font.rules;
+                font.source = FONT_SOURCE;
+                migrated += 1;
+            } else if (font.source === FONT_SOURCE) {
+                const cached = byId.get(font.id)?.rules;
+                if (cached) this.rulesCache.set(font.id, cached);
+            }
+        }
+
+        await this.backfillSync({ onlyActive: true });
+
+        // Pull only the font that is actually in use. People collect dozens of
+        // them; downloading everything on first load would be tens of
+        // megabytes for fonts that may never be selected.
+        const active = (settings.storedFonts || []).find(f => f.id === settings.activeFontId);
+        if (active && !this.rulesCache.get(active.id) && active.fileName) {
+            const rules = await this.ensureRules(active);
+            if (rules) {
+                console.log(`[模块-全局字体] 已从服务器拉取当前字体：“${active.name}”`);
+                this.applyAllStyles();
+            }
+        }
+        if (migrated > 0) {
+            console.log(`[模块-全局字体] 已迁移 ${migrated} 个字体到本地数据库。`);
+            this.saveSettings();
+        }
+    },
+
+    /**
+     * Uploads payloads that were migrated before sync existed.
+     * With onlyActive (the default at startup) just the font in use is sent,
+     * so users with dozens of imported fonts do not upload all of them at once.
+     */
+    async backfillSync({ onlyActive = true } = {}) {
+        const settings = this.getSettings();
+        let changed = 0;
+        for (const font of settings.storedFonts || []) {
+            if (font.source !== FONT_SOURCE || font.fileName) continue;
+            if (onlyActive && font.id !== settings.activeFontId) continue;
+            const rules = this.rulesCache.get(font.id);
+            if (!rules) continue;
+            try {
+                const match = rules.match(/url\(data:font\/([^;]+);base64,([^)]+)\)/i);
+                if (match) {
+                    const rawFormat = match[1].toLowerCase();
+                    const extension = rawFormat === 'truetype' ? 'ttf' : rawFormat === 'opentype' ? 'otf' : rawFormat;
+                    const fileName = `stmd-font-${font.id}.${extension}`;
+                    await FontSync.upload(fileName, match[2]);
+                    Object.assign(font, { fileName, kind: 'binary', format: rawFormat });
+                } else {
+                    const fileName = `stmd-font-${font.id}.css`;
+                    await FontSync.upload(fileName, btoa(unescape(encodeURIComponent(rules))));
+                    Object.assign(font, { fileName, kind: 'css' });
+                }
+                changed += 1;
+            } catch (e) {
+                console.warn('[模块-全局字体] 回填上传失败:', font.name, e);
+            }
+        }
+        if (changed > 0) {
+            console.log(`[模块-全局字体] 已上传 ${changed} 个字体供其他设备同步。`);
+            this.saveSettings();
+        }
+    },
+
+    /** Resolves a font's rules: memory cache, IndexedDB, then the server. */
+    async ensureRules(font) {
+        if (!font) return null;
+        const cached = this.rulesCache.get(font.id);
+        if (cached) return cached;
+
+        let rules = null;
+        try {
+            const record = await FontStore.get(font.id);
+            if (record && record.rules) rules = record.rules;
+        } catch (e) { /* keep going */ }
+
+        if (!rules && font.fileName) {
+            try {
+                rules = await this.fetchRemoteRules(font);
+            } catch (e) {
+                console.warn('[模块-全局字体] 远程字体拉取失败:', font.name, e);
+            }
+            if (rules) {
+                FontStore.put({
+                    id: font.id,
+                    name: font.name,
+                    rules,
+                    source: FONT_SOURCE,
+                    savedAt: Date.now(),
+                }).catch(() => {});
+            }
+        }
+
+        if (rules) this.rulesCache.set(font.id, rules);
+        return rules;
+    },
+
+    async fetchRemoteRules(font) {
+        if (font.kind === 'css') {
+            return await FontSync.fetchText(font.fileName);
+        }
+        const base64 = await FontSync.fetchBase64(font.fileName);
+        if (!base64) return null;
+        const format = font.format || 'woff2';
+        return `@font-face {\n    font-family: "${font.name}";\n    src: url(data:font/${format};base64,${base64}) format("${format}");\n}`;
     },
 
     getSettings() {
@@ -108,7 +369,19 @@ export const GlobalFontModule = {
         }
         const settings = this.getSettings();
         const activeFont = settings.storedFonts.find(f => f.id === settings.activeFontId);
-        const baseRules = activeFont ? activeFont.rules : '';
+        const baseRules = this.rulesCache.get(settings.activeFontId) || '';
+
+        // Only the selected font is loaded; the rest stay as metadata.
+        if (!baseRules && activeFont && activeFont.source === FONT_SOURCE) {
+            if (this._pendingRuleLoad !== activeFont.id) {
+                this._pendingRuleLoad = activeFont.id;
+                this.ensureRules(activeFont).then(rules => {
+                    this._pendingRuleLoad = null;
+                    if (rules) this.applyAllStyles();
+                }).catch(() => { this._pendingRuleLoad = null; });
+            }
+        }
+
         const sentinelRule = `.font-sentinel-target { font-family: "${fontName}" !important; }`;
         const overrideRule = `:root { --mainFontFamily: "${fontName}" !important; --monoFontFamily: "${fontName}" !important; } body, body *:not([class*="fa-"]):not([class*="icon"]):not([class*="material-symbols"]) { font-family: var(--mainFontFamily, "${fontName}") !important; }`;
         styleEl.textContent = `${baseRules}\n\n${overrideRule}\n\n${sentinelRule}`;
@@ -148,9 +421,11 @@ export const GlobalFontModule = {
 
     renderSettingsHtml() {
         const s = this.getSettings();
-        const fontOptions = s.storedFonts.map(font =>
-            `<option value="${font.id}" ${s.activeFontId === font.id ? 'selected' : ''}>${this.extractFontName(font.rules) || '未知字体'}</option>`
-        ).join('');
+        const fontOptions = s.storedFonts.map(font => {
+            const base = font.name || this.extractFontName(this.rulesCache.get(font.id)) || '未知字体';
+            const label = base + (this.rulesCache.get(font.id) ? '' : ' · 未缓存');
+            return `<option value="${font.id}" ${s.activeFontId === font.id ? 'selected' : ''}>${label}</option>`;
+        }).join('');
 
         return `
             <div id="global_font_options_wrapper">
@@ -161,6 +436,7 @@ export const GlobalFontModule = {
                         ${fontOptions}
                     </select>
                     <button id="global_font_delete_btn" class="menu_button fa-solid fa-trash-can" title="删除当前选中的字体" style="flex-shrink: 0;"></button>
+                    <button id="global_font_sync_btn" class="menu_button fa-solid fa-cloud-arrow-up" title="把本机字体上传到服务器，供其他设备同步" style="flex-shrink: 0;"></button>
                 </div>
                 <div id="faux_bold_section"><hr><h4 class="sub-header" style="margin-top: 10px;">字体粗细 (全局生效)</h4><label class="checkbox_label"><input type="checkbox" id="faux_bold_toggle" ${s.fauxBold.enabled ? 'checked' : ''}><span>启用描边效果</span></label><div id="faux_bold_controls" class="form-group" style="padding-left: 5px; ${s.fauxBold.enabled ? '' : 'display: none;'}"><label for="faux_bold_input">描边量 (正/负):</label><input type="number" id="faux_bold_input" class="text_pole" value="${s.fauxBold.width.toFixed(1)}" step="0.1" placeholder="正值加粗，负值变细，例：0.4"></div></div>
                 <div id="add_new_font_section" style="margin-top: 15px; border: 1px solid var(--border_color); padding: 10px; border-radius: 5px;">
@@ -192,21 +468,57 @@ export const GlobalFontModule = {
     bindSettingsEvents() {
         $(document).off('change.globalFont click.globalFont input.globalFont');
 
-        $(document).on('change.globalFont', '#global_font_select', e => {
+        $(document).on('change.globalFont', '#global_font_select', async e => {
             const settings = this.getSettings();
             settings.activeFontId = $(e.currentTarget).val();
+            const picked = settings.storedFonts.find(f => f.id === settings.activeFontId);
+            if (picked) {
+                await this.ensureRules(picked);
+            }
             this.saveSettings();
         });
 
-        $(document).on('click.globalFont', '#global_font_delete_btn', () => {
+        $(document).on('click.globalFont', '#global_font_delete_btn', async () => {
             const settings = this.getSettings();
             const selectedId = $('#global_font_select').val();
             if (selectedId === 'default' || !selectedId) return alert("不能删除默认选项。");
-            if (confirm(`确定要删除字体“${$('#global_font_select option:selected').text()}”吗？`)) {
-                settings.storedFonts = settings.storedFonts.filter(font => font.id !== selectedId);
-                if (settings.activeFontId === selectedId) settings.activeFontId = 'default';
-                this.saveSettings(true);
+            const target = settings.storedFonts.find(font => font.id === selectedId);
+            if (!confirm(`确定要删除字体“${$('#global_font_select option:selected').text()}”吗？`)) return;
+
+            settings.storedFonts = settings.storedFonts.filter(font => font.id !== selectedId);
+            if (settings.activeFontId === selectedId) settings.activeFontId = 'default';
+            this.rulesCache.delete(selectedId);
+
+            // Only touch payloads this extension wrote itself.
+            if (target && target.source === FONT_SOURCE) {
+                try {
+                    await FontStore.remove(selectedId);
+                } catch (e) {
+                    console.warn('[模块-全局字体] 数据库删除失败:', e);
+                }
+                if (target.fileName) {
+                    try {
+                        await FontSync.remove(`user/files/${target.fileName}`);
+                    } catch (e) {
+                        console.warn('[模块-全局字体] 服务器文件删除失败:', e);
+                    }
+                }
             }
+            this.saveSettings(true);
+        });
+
+        $(document).on('click.globalFont', '#global_font_sync_btn', async () => {
+            const settings = this.getSettings();
+            const missing = (settings.storedFonts || []).filter(f => f.source === FONT_SOURCE && !f.fileName);
+            if (missing.length === 0) {
+                return alert('所有字体都已经同步到服务器了。');
+            }
+            const button = document.getElementById('global_font_sync_btn');
+            if (button) button.classList.add('disabled');
+            await this.backfillSync({ onlyActive: false });
+            if (button) button.classList.remove('disabled');
+            const left = (this.getSettings().storedFonts || []).filter(f => f.source === FONT_SOURCE && !f.fileName);
+            alert(left.length === 0 ? '同步完成，其他设备打开时会自动下载。' : '部分字体同步失败，请检查网络后重试。');
         });
 
         $(document).on('change.globalFont', '#faux_bold_toggle', e => {
@@ -252,7 +564,8 @@ export const GlobalFontModule = {
                     return;
                 }
                 $('#new_font_name_input').val(fontName);
-                this.pendingFileData = { dataUrl, format };
+                const base64 = String(dataUrl).split(',')[1] || '';
+                this.pendingFileData = { dataUrl, format, extension, base64 };
             };
             reader.readAsDataURL(file);
             e.target.value = '';
@@ -274,14 +587,22 @@ export const GlobalFontModule = {
             }
         });
 
-        $(document).on('click.globalFont', '#global_font_add_btn', () => {
+        $(document).on('click.globalFont', '#global_font_add_btn', async () => {
             let rules = '';
             let name = $('#new_font_name_input').val().trim();
+            let fileName = '';
+            let kind = '';
+            let format = '';
             const cssContent = $('#new_font_css_rules').val().trim();
+            const id = Date.now().toString();
+
             if (this.pendingFileData) {
                 if (!name) { return alert('请为导入的字体文件提供一个名称。'); }
-                const { dataUrl, format } = this.pendingFileData;
-                rules = `@font-face {\n    font-family: "${name}";\n    src: url(${dataUrl}) format("${format}");\n}`;
+                const { dataUrl, format: fileFormat, extension } = this.pendingFileData;
+                rules = `@font-face {\n    font-family: "${name}";\n    src: url(${dataUrl}) format("${fileFormat}");\n}`;
+                format = fileFormat;
+                kind = 'binary';
+                fileName = `stmd-font-${id}.${extension}`;
             } else if (cssContent) {
                 rules = cssContent;
                 if (!name) {
@@ -294,16 +615,45 @@ export const GlobalFontModule = {
                     }
                     $('#new_font_name_input').val(name);
                 }
+                kind = 'css';
+                fileName = `stmd-font-${id}.css`;
             } else {
                 return alert('请选择一个文件，或粘贴有效的CSS规则。');
             }
-            const newFont = { id: Date.now().toString(), name, rules };
+
             const settings = this.getSettings();
-            if (settings.storedFonts.some(font => font.name === newFont.name)) {
-                return alert(`名为 "${newFont.name}" 的字体已存在！`);
+            if (settings.storedFonts.some(font => font.name === name)) {
+                return alert(`名为 "${name}" 的字体已存在！`);
             }
-            settings.storedFonts.push(newFont);
-            settings.activeFontId = newFont.id;
+
+            // Cache locally first so the font works even if the upload fails.
+            await FontStore.put({
+                id,
+                name,
+                rules,
+                source: FONT_SOURCE,
+                savedAt: Date.now(),
+            });
+            this.rulesCache.set(id, rules);
+
+            // Upload for the other devices; a failure only costs sync, not use.
+            try {
+                if (kind === 'css') {
+                    await FontSync.upload(fileName, btoa(unescape(encodeURIComponent(rules))));
+                } else if (this.pendingFileData?.base64) {
+                    await FontSync.upload(fileName, this.pendingFileData.base64);
+                }
+            } catch (e) {
+                console.warn('[模块-全局字体] 字体上传失败，仅保存在本机:', e);
+            }
+
+            settings.storedFonts.push({
+                id,
+                name,
+                source: FONT_SOURCE,
+                ...(fileName ? { fileName, kind, format } : {}),
+            });
+            settings.activeFontId = id;
             this.saveSettings(true);
             this.pendingFileData = null;
             $('#font_file_display').text('未选择文件');

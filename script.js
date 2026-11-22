@@ -37,7 +37,8 @@ function initializeCombinedExtension() {
     combinedExtensionInitialized = true;
 
     try {
-        GlobalFontModule.init();
+        window.__stmdGlobalFont = GlobalFontModule;
+GlobalFontModule.init();
         FontObserverModule.init(GlobalFontModule.docContext);
 
         const detailsFoldEnabled = getDetailsFoldEnabled();
@@ -269,7 +270,8 @@ function bindMainSettingsEvents() {
         $('#global_font_settings_panel').toggle(enabled);
 
         if (enabled) {
-            GlobalFontModule.init();
+            window.__stmdGlobalFont = GlobalFontModule;
+GlobalFontModule.init();
 
             if (GlobalFontModule.getActiveFontName()) {
                 FontObserverModule.start();
