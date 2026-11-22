@@ -256,6 +256,7 @@ export const RecentFoldersModule = {
                 newFileName: String(next).trim(),
                 loader: false,
             });
+            this.forgetCache(avatar);
             this.refresh();
         } catch (e) {
             console.error('[模块-主页文件夹] 重命名失败:', e);
@@ -269,6 +270,7 @@ export const RecentFoldersModule = {
         if (!window.confirm(`确定要删除聊天「${chatName}」吗？`)) return;
         try {
             await deleteCharacterChatByName(index, chatName);
+            this.forgetCache(avatar);
             this.refresh();
         } catch (e) {
             console.error('[模块-主页文件夹] 删除失败:', e);
@@ -286,6 +288,7 @@ export const RecentFoldersModule = {
         const results = await Promise.allSettled(
             folder.chats.map(chat => deleteCharacterChatByName(index, this.chatKey(chat)))
         );
+        this.forgetCache(folder.avatar);
         const failed = results.filter(item => item.status === 'rejected').length;
         if (failed > 0) {
             console.warn(`[模块-主页文件夹] ${failed} 个聊天删除失败`);
@@ -472,6 +475,12 @@ export const RecentFoldersModule = {
             spinner.remove();
             this._loading.delete(avatar);
         }
+    },
+
+    /** Drops cached counts so the next render reads fresh data. */
+    forgetCache(avatar) {
+        this._totals.delete(avatar);
+        this._allChats.delete(avatar);
     },
 
     showProgress(wrapper, shown, total) {
