@@ -412,35 +412,44 @@
 .stmd-select-bar {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
+    gap: 2%;
+    padding: 1.5% 2%;
     margin-bottom: 6px;
     border-radius: 8px;
+    /* Theme-neutral: falls back to the active theme's own panel tint. */
     background: var(--SmartThemeBlurTintColor, rgba(30, 30, 30, 0.92));
+    color: var(--SmartThemeBodyColor, inherit);
     font-size: 0.9em;
     /* Stays reachable while the list inside the folder scrolls. */
     position: sticky;
     top: 0;
     z-index: 3;
+    -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
 }
 
 .stmd-select-count {
-    flex: 0 0 auto;
-    margin-right: 4px;
+    flex: 0 1 auto;
+    margin-right: 2%;
     opacity: 0.8;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
+/* Proportional split: the two actions share whatever the counter leaves. */
 .stmd-select-bar .stmd-select-delete,
 .stmd-select-bar .stmd-select-cancel {
     flex: 1 1 0;
+    min-width: 0;
     justify-content: center;
 }
 
+/* Destructive action keeps a fixed alarm colour so it reads the same on any
+   theme; #fff is only ever used on top of that colour. */
 .stmd-select-bar .stmd-select-delete {
-    background: var(--SmartThemeQuoteColor, #6d5efc) !important;
-    border-color: transparent !important;
+    background: var(--stmd-danger, #b3261e) !important;
+    border-color: var(--stmd-danger, #b3261e) !important;
     color: #fff !important;
 }
 
@@ -478,7 +487,7 @@
     top: 0;
     bottom: 0;
     z-index: 2;
-    width: 46px;
+    width: 3rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -512,5 +521,5 @@
 }
 
 .stmd-folder-body.stmd-selecting .recentChat {
-    padding-left: 52px;
+    padding-left: 3.4rem;
 }
