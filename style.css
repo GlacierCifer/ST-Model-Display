@@ -221,3 +221,61 @@
 .stmd-folder-body .recentChat {
     margin-bottom: 4px;
 }
+
+/* ── 主页按角色分组 ───────────────────────────────────────── */
+/* Folder headers reuse .recentChat, so themes keep styling them. Only the
+   folder-specific bits (icon, count, chevron, collapse) are declared here. */
+.stmd-folder {
+    margin-bottom: 6px;
+}
+
+.stmd-folder-head {
+    cursor: pointer;
+}
+
+.stmd-folder-icon {
+    opacity: 0.65;
+    margin-right: 4px;
+}
+
+.stmd-folder-count {
+    opacity: 0.7;
+    font-size: 0.85em;
+    margin-left: 6px;
+}
+
+.stmd-folder-chevron {
+    margin-left: auto;
+    opacity: 0.6;
+    transition: transform 0.18s ease;
+}
+
+.stmd-folder.stmd-open .stmd-folder-chevron {
+    transform: rotate(180deg);
+}
+
+.stmd-folder-body {
+    display: none;
+    max-height: 42vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.stmd-folder.stmd-open .stmd-folder-body {
+    display: block;
+}
+
+/* Keep the label centred in whatever height the theme gives .recentChat. */
+.stmd-folder-head {
+    align-items: center;
+}
+
+.stmd-folder-head .recentChatInfo {
+    justify-content: center;
+    display: flex;
+    flex-direction: column;
+}
+
+.stmd-folder-head .chatNameContainer {
+    align-items: center;
+}

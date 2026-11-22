@@ -184,20 +184,38 @@ export const RecentFoldersModule = {
         wrapper.className = `stmd-folder${open ? ' stmd-open' : ''}`;
         wrapper.dataset.avatar = folder.avatar;
 
-        const head = document.createElement('button');
-        head.type = 'button';
-        head.className = 'stmd-folder-head';
-        head.title = `${folder.name} · ${folder.chats.length}`;
+        // Reuses the stock .recentChat markup so every theme keeps styling it;
+        // only the chat-specific parts (message preview, date, actions) are gone.
+        const head = document.createElement('div');
+        head.className = 'recentChat stmd-folder-head';
+        head.setAttribute('role', 'button');
+        head.tabIndex = 0;
+        head.title = folder.name;
         head.innerHTML = `
-            <img class="stmd-folder-avatar" src="${escape(folder.thumbnail)}" alt="" loading="lazy" decoding="async">
-            <span class="stmd-folder-name">${escape(folder.name)}</span>
-            <span class="stmd-folder-count">${folder.chats.length}</span>
+            <div class="avatar"><img src="${escape(folder.thumbnail)}" alt="" loading="lazy" decoding="async"></div>
+            <div class="recentChatInfo">
+                <div class="chatNameContainer">
+                    <div class="chatName">
+                        <i class="fa-solid fa-folder stmd-folder-icon"></i>
+                        <strong class="characterName">${escape(folder.name)}</strong>
+                        <span class="stmd-folder-count">${folder.chats.length}</span>
+                    </div>
+                </div>
+            </div>
             <i class="fa-solid fa-chevron-down stmd-folder-chevron"></i>`;
-        head.addEventListener('click', (event) => {
+
+        const toggle = (event) => {
             event.stopPropagation();
             const next = !wrapper.classList.contains('stmd-open');
             wrapper.classList.toggle('stmd-open', next);
             this.setOpen(folder.avatar, next);
+        };
+        head.addEventListener('click', toggle);
+        head.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                toggle(event);
+            }
         });
 
         const body = document.createElement('div');
