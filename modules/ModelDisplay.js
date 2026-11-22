@@ -477,19 +477,33 @@ export const ModelDisplayModule = {
         if (!messageId || messageId === '0' || messageId === '1' || this.processingMessages.has(messageId)) return;
         this.processingMessages.add(messageId);
         const startTime = Date.now();
+        let attempt = 0;
         const checkIcon = () => {
             if (Date.now() - startTime > timeout) {
                 this.processingMessages.delete(messageId);
                 return;
             }
-            const iconSvg = this.deepQuerySelector('.icon-svg.timestamp-icon', messageElement);
-            if (!iconSvg) { setTimeout(checkIcon, 100); return; }
+            attempt += 1;
+            // Cheap path first: the timestamp icon is a plain descendant in
+            // almost every case, so only fall back to the expensive shadow-DOM
+            // scan every fifth attempt.
+            let iconSvg = messageElement.querySelector('.icon-svg.timestamp-icon');
+            if (!iconSvg && attempt % 5 === 0) {
+                iconSvg = this.deepQuerySelector('.icon-svg.timestamp-icon', messageElement);
+            }
+            if (!iconSvg) {
+                const delay = Math.min(800, Math.round(100 * Math.pow(1.4, attempt)));
+                setTimeout(checkIcon, delay);
+                return;
+            }
             const modelName = this.getCurrentModelName(messageElement);
             if (modelName) {
                 this.processingMessages.delete(messageId);
                 this.modelHistory[messageId] = modelName;
                 this.processIcon(iconSvg, modelName);
-            } else { setTimeout(checkIcon, 200); }
+            } else {
+                setTimeout(checkIcon, 200);
+            }
         };
         setTimeout(checkIcon, 100);
     },

@@ -335,15 +335,20 @@ export const FontObserverModule = {
         if (this.isRunning || !this.docContext) return;
         if (this.observer) this.observer.disconnect();
 
-        this.observer = new MutationObserver(mutations => {
-            for (const mutation of mutations) {
-                if (mutation.addedNodes.length) {
-                    mutation.addedNodes.forEach(node => {
-                        if (node.nodeType === 1) {
-                            this.checkAndApply(node);
-                        }
-                    });
-                }
+        // Streaming updates append nodes one by one, which used to run a
+        // six-selector query per node. Batch them into a single pass per frame.
+        let scheduled = false;
+        this.observer = new MutationObserver(() => {
+            if (scheduled) return;
+            scheduled = true;
+            const run = () => {
+                scheduled = false;
+                this.applyAll();
+            };
+            if (this.docContext.requestAnimationFrame) {
+                this.docContext.requestAnimationFrame(run);
+            } else {
+                setTimeout(run, 16);
             }
         });
 
@@ -361,11 +366,21 @@ export const FontObserverModule = {
         console.log('[字体哨兵] 已停止监视。');
     },
 
+    applyAll() {
+        const selector = this.targets.join(',');
+        this.docContext.querySelectorAll(selector).forEach(el => {
+            if (!el.classList.contains('font-sentinel-target')) {
+                el.classList.add('font-sentinel-target');
+            }
+        });
+    },
+
     checkAndApply(node) {
-        if (node.matches(this.targets.join(','))) {
+        const selector = this.targets.join(',');
+        if (node.matches(selector)) {
             node.classList.add('font-sentinel-target');
         }
-        node.querySelectorAll(this.targets.join(',')).forEach(child => {
+        node.querySelectorAll(selector).forEach(child => {
             child.classList.add('font-sentinel-target');
         });
     }
