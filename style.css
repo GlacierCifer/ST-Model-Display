@@ -389,3 +389,75 @@
     font-size: 0.9em;
     opacity: 0.8;
 }
+
+/* ── 文件夹内：新建聊天与多选删除 ───────────────────────── */
+.stmd-new-chat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    border: 1px dashed var(--SmartThemeBorderColor, #555);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9em;
+    opacity: 0.8;
+}
+
+.stmd-new-chat:hover {
+    opacity: 1;
+}
+
+.stmd-select-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    margin-bottom: 6px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    font-size: 0.9em;
+}
+
+.stmd-select-count {
+    flex: 1 1 auto;
+    opacity: 0.8;
+}
+
+.stmd-folder-row.stmd-selected {
+    outline: 2px solid var(--SmartThemeQuoteColor, #6d5efc);
+    outline-offset: -2px;
+}
+
+.stmd-delete-menu {
+    position: absolute;
+    z-index: 4000;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 10px;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    background: var(--SmartThemeBlurTintColor, rgba(30, 30, 30, 0.98));
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.stmd-delete-menu .menu_button {
+    width: 100%;
+    justify-content: flex-start;
+}
+
+.stmd-folder-body .recentChat {
+    position: relative;
+}
+
+.stmd-pick {
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--SmartThemeQuoteColor, #6d5efc);
+}

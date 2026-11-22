@@ -8,6 +8,7 @@ import {
     getRequestHeaders,
     renameGroupOrCharacterChat,
     deleteCharacterChatByName,
+    doNewChat,
 } from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
 
@@ -284,6 +285,98 @@ export const RecentFoldersModule = {
         }
     },
 
+    /** Opens a brand-new chat for the folder's character. */
+    async startNewChat(folder) {
+        const index = characters?.findIndex(c => c.avatar === folder.avatar) ?? -1;
+        if (index === -1) return;
+        try {
+            await selectCharacterById(index);
+            await doNewChat({ deleteCurrentChat: false });
+        } catch (e) {
+            console.error('[模块-主页文件夹] 新建聊天失败:', e);
+        }
+    },
+
+    /** Delete offers two modes: the whole folder, or picked chats. */
+    openDeleteMenu(folder, head, body) {
+        document.querySelector('.stmd-delete-menu')?.remove();
+        const menu = document.createElement('div');
+        menu.className = 'stmd-delete-menu';
+        menu.innerHTML = `
+            <button type="button" class="menu_button stmd-delete-all">删除整个文件夹</button>
+            <button type="button" class="menu_button stmd-delete-pick">选择要删除的聊天</button>`;
+        const rect = head.getBoundingClientRect();
+        menu.style.top = `${window.scrollY + rect.bottom + 4}px`;
+        menu.style.left = `${window.scrollX + Math.max(8, rect.right - 180)}px`;
+        document.body.appendChild(menu);
+
+        const close = () => {
+            menu.remove();
+            document.removeEventListener('click', outside, true);
+        };
+        const outside = (event) => {
+            if (!menu.contains(event.target)) close();
+        };
+        setTimeout(() => document.addEventListener('click', outside, true), 0);
+
+        menu.querySelector('.stmd-delete-all')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            close();
+            void this.deleteFolderChats(folder);
+        });
+        menu.querySelector('.stmd-delete-pick')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            close();
+            this.enterSelection(body);
+        });
+    },
+
+    enterSelection(body) {
+        body.classList.add('stmd-selecting');
+        body.querySelector('.stmd-select-bar').style.display = 'flex';
+        body.querySelectorAll('.stmd-selected').forEach(row => row.classList.remove('stmd-selected'));
+        body.querySelector('.stmd-select-count').textContent = '已选 0 项';
+
+        // A checkbox per row: the rows belong to ST, so we never intercept their
+        // click — the box stops propagation itself.
+        body.querySelectorAll('.recentChat').forEach(row => {
+            if (row.querySelector(':scope > .stmd-pick')) return;
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.className = 'stmd-pick';
+            box.addEventListener('click', (event) => {
+                event.stopPropagation();
+                row.classList.toggle('stmd-selected', box.checked);
+                const count = body.querySelectorAll('.recentChat.stmd-selected').length;
+                const label = body.querySelector('.stmd-select-count');
+                if (label) label.textContent = `已选 ${count} 项`;
+            });
+            row.prepend(box);
+        });
+    },
+
+    exitSelection(body) {
+        body.classList.remove('stmd-selecting');
+        const bar = body.querySelector('.stmd-select-bar');
+        if (bar) bar.style.display = 'none';
+        body.querySelectorAll('.stmd-selected').forEach(row => row.classList.remove('stmd-selected'));
+        body.querySelectorAll('.stmd-pick').forEach(box => box.remove());
+    },
+
+    async deleteSelected(folder, body) {
+        const rows = [...body.querySelectorAll('.recentChat.stmd-selected')];
+        if (rows.length === 0) return;
+        const index = characters?.findIndex(c => c.avatar === folder.avatar) ?? -1;
+        if (index === -1) return;
+        if (!window.confirm(`确定删除选中的 ${rows.length} 个聊天吗？删除后无法恢复。`)) return;
+
+        const results = await Promise.allSettled(rows.map(row => deleteCharacterChatByName(index, row.dataset.file)));
+        const failed = results.filter(item => item.status === 'rejected').length;
+        if (failed > 0) console.warn(`[模块-主页文件夹] ${failed} 个聊天删除失败`);
+        this.forgetCache(folder.avatar);
+        this.refresh();
+    },
+
     /** Deletes every chat inside one character folder, after confirmation. */
     async deleteFolderChats(folder) {
         const index = characters?.findIndex(c => c.avatar === folder.avatar) ?? -1;
@@ -381,6 +474,28 @@ export const RecentFoldersModule = {
         const body = document.createElement('div');
         body.className = `stmd-folder-body${open ? ' stmd-open' : ''}`;
 
+        // A slim "new chat" row always sits first inside an opened folder.
+        const newChat = document.createElement('div');
+        newChat.className = 'stmd-new-chat';
+        newChat.setAttribute('role', 'button');
+        newChat.tabIndex = 0;
+        newChat.innerHTML = '<i class="fa-solid fa-plus"></i><span>创建新聊天</span>';
+        newChat.addEventListener('click', (event) => {
+            event.stopPropagation();
+            void this.startNewChat(folder);
+        });
+        body.appendChild(newChat);
+
+        // Hidden until the folder enters selection mode.
+        const selectBar = document.createElement('div');
+        selectBar.className = 'stmd-select-bar';
+        selectBar.style.display = 'none';
+        selectBar.innerHTML = `
+            <span class="stmd-select-count">已选 0 项</span>
+            <button type="button" class="menu_button stmd-select-delete">删除</button>
+            <button type="button" class="menu_button stmd-select-cancel">取消</button>`;
+        body.appendChild(selectBar);
+
         // Rows are created lazily: a closed folder renders nothing, and an open
         // one only renders the first page. Hundreds of pre-built rows made the
         // welcome panel heavy enough that WebKit dropped its backdrop blur.
@@ -429,7 +544,17 @@ export const RecentFoldersModule = {
         const deleteButton = head.querySelector('.stmd-folder-delete');
         deleteButton?.addEventListener('click', (event) => {
             event.stopPropagation();
-            void this.deleteFolderChats(folder);
+            this.openDeleteMenu(folder, head, body);
+        });
+
+
+        selectBar.querySelector('.stmd-select-cancel')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.exitSelection(body);
+        });
+        selectBar.querySelector('.stmd-select-delete')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            void this.deleteSelected(folder, body);
         });
 
         const fragment = document.createDocumentFragment();
