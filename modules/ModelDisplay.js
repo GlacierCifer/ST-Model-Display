@@ -3,7 +3,9 @@ import { extension_settings } from '../../../../extensions.js';
 
 export const ModelDisplayModule = {
     name: 'model_display',
-    CURRENT_SCRIPT_VERSION: '1.6.0', // 优化精简模式下的前后缀屏蔽逻辑
+    // Only a fallback: the real version comes from manifest.json.
+    CURRENT_SCRIPT_VERSION: '1.6.0',
+    _manifestVersion: null,
     modelHistory: {},
     chatContentObserver: null,
     chatContainerObserver: null,
@@ -569,9 +571,25 @@ export const ModelDisplayModule = {
         this.pendingProcessing.clear();
         this.processingMessages.clear();
     },
+    async getVersion() {
+        if (this._manifestVersion) return this._manifestVersion;
+        try {
+            const response = await fetch(new URL('../manifest.json', import.meta.url), { cache: 'no-store' });
+            const manifest = await response.json();
+            if (manifest.version) this._manifestVersion = manifest.version;
+        } catch {
+            // keep the fallback
+        }
+        return this._manifestVersion || this.CURRENT_SCRIPT_VERSION;
+    },
+
     async checkForUpdates() {
         const indicator = $('#model_display_version_indicator');
         if (!indicator.length) return;
-        indicator.text(`v${this.CURRENT_SCRIPT_VERSION}`).css('cursor', 'default').attr('title', '这是一个带精简过滤功能的修改版，无法自动检查更新。');
+        const version = await this.getVersion();
+        indicator
+            .text(`v${version}`)
+            .css('cursor', 'default')
+            .attr('title', '版本号取自 manifest.json，点右侧云朵图标可检查更新。');
     }
 };
