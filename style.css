@@ -418,7 +418,6 @@
     border-radius: 8px;
     /* Theme-neutral: falls back to the active theme's own panel tint. */
     background: var(--SmartThemeBlurTintColor, rgba(30, 30, 30, 0.92));
-    color: var(--SmartThemeBodyColor, inherit);
     font-size: 0.9em;
     /* Stays reachable while the list inside the folder scrolls. */
     position: sticky;

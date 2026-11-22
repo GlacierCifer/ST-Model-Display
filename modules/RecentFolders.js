@@ -7,7 +7,6 @@ import {
     saveSettingsDebounced,
     getRequestHeaders,
     renameGroupOrCharacterChat,
-    deleteCharacterChatByName,
     doNewChat,
 } from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
@@ -283,12 +282,32 @@ export const RecentFoldersModule = {
         if (index === -1) return;
         if (!window.confirm(`确定要删除聊天「${chatName}」吗？`)) return;
         try {
-            await deleteCharacterChatByName(index, chatName);
+            await this.deleteChatFile(avatar, this.chatFileOf({ dataset: { file: chatName } }));
             this.forgetCache(avatar);
             this.refresh();
         } catch (e) {
             console.error('[模块-主页文件夹] 删除失败:', e);
         }
+    },
+
+    /** The API wants the file name with its .jsonl suffix, rows do not always have it. */
+    chatFileOf(row) {
+        const fromData = String(row?.dataset?.file || '');
+        if (/\.jsonl$/i.test(fromData)) return fromData;
+        const fromTitle = String(row?.title || '');
+        if (/\.jsonl$/i.test(fromTitle)) return fromTitle;
+        return `${fromData || fromTitle}.jsonl`;
+    },
+
+    /** Deletes one chat file by its exact name, without relying on character indexes. */
+    async deleteChatFile(avatar, file) {
+        const chatfile = /\.jsonl$/i.test(file) ? file : `${file}.jsonl`;
+        const response = await fetch('/api/chats/delete', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ avatar_url: avatar, chatfile }),
+        });
+        if (!response.ok) throw new Error(`删除失败：HTTP ${response.status}`);
     },
 
     /** Opens a brand-new chat for the folder's character. */
@@ -377,28 +396,35 @@ export const RecentFoldersModule = {
 
     async deleteSelected(folder, body) {
         const rows = [...body.querySelectorAll('.recentChat.stmd-selected')];
-        if (rows.length === 0) return;
         const index = characters?.findIndex(c => c.avatar === folder.avatar) ?? -1;
-        if (index === -1) return;
-        if (!window.confirm(`确定删除选中的 ${rows.length} 个聊天吗？删除后无法恢复。`)) return;
 
-        const results = await Promise.allSettled(rows.map(row => deleteCharacterChatByName(index, row.dataset.file)));
-        const failed = results.filter(item => item.status === 'rejected').length;
-        if (failed > 0) console.warn(`[模块-主页文件夹] ${failed} 个聊天删除失败`);
-        this.forgetCache(folder.avatar);
-        this.refresh();
+        if (rows.length === 0) return;
+        if (index === -1) return;
+        const confirmed = window.confirm(`确定删除选中的 ${rows.length} 个聊天吗？删除后无法恢复。`);
+
+        if (!confirmed) return;
+
+        try {
+            const files = rows.map(row => this.chatFileOf(row));
+            const results = await Promise.allSettled(files.map(file => this.deleteChatFile(folder.avatar, file)));
+
+            const failed = results.filter(item => item.status === 'rejected').length;
+            if (failed > 0) console.warn(`[模块-主页文件夹] ${failed} 个聊天删除失败`);
+            this.forgetCache(folder.avatar);
+            this.refresh();
+        } catch (e) {
+            console.error('[模块-主页文件夹] 批量删除失败:', e);
+        }
     },
 
     /** Deletes every chat inside one character folder, after confirmation. */
     async deleteFolderChats(folder) {
-        const index = characters?.findIndex(c => c.avatar === folder.avatar) ?? -1;
-        if (index === -1) return;
         const count = folder.chats.length;
         const message = `确定要删除「${folder.name}」的全部聊天记录吗？\n共 ${count} 个聊天，删除后无法恢复。`;
         if (!window.confirm(message)) return;
 
         const results = await Promise.allSettled(
-            folder.chats.map(chat => deleteCharacterChatByName(index, this.chatKey(chat)))
+            folder.chats.map(chat => this.deleteChatFile(folder.avatar, String(chat.file_name || chat.chat_name || '')))
         );
         this.forgetCache(folder.avatar);
         const failed = results.filter(item => item.status === 'rejected').length;
