@@ -17,7 +17,7 @@ const AVATAR_CLASS = 'stmd-mask-avatar';
 const CONTAINER_SELECTOR = '.recentChat, .mes, .character-card, .stmd-folder-head, #chat .mes';
 
 const originalText = new Map();
-const wrappedNodes = new Set();
+const wrappedNodes = new Map();
 const maskedImages = new Set();
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -129,7 +129,7 @@ export const PrivacyMaskModule = {
         this._running = true;
         try {
             const rules = (settings.rules || [])
-                .map(rule => ({ regex: buildRegex(rule.match), replacement: rule.replace }))
+                .map(rule => ({ regex: buildRegex(this.expandMacros(rule.match)), replacement: rule.replace }))
                 .filter(rule => rule.regex);
             if (rules.length > 0) this.maskText(settings, rules);
             if (settings.avatarMode === 'all') this.maskAllAvatars();
@@ -138,6 +138,26 @@ export const PrivacyMaskModule = {
         } finally {
             this._running = false;
         }
+    },
+
+    /** Expands {{char}} / {{user}} into the real names before matching. */
+    expandMacros(pattern) {
+        const source = String(pattern || '');
+        if (!source.includes('{{char}}') && !source.includes('{{user}}')) return source;
+        const context = window.SillyTavern?.getContext?.() || {};
+        const names = (context.characters || []).map(item => item?.name).filter(Boolean);
+        const userName = context.name1 || '';
+        let output = source;
+        if (output.includes('{{char}}')) {
+            const alternatives = names.length
+                ? names.map(name => escapeRegExp(name)).sort((a, b) => b.length - a.length).join('|')
+                : '.+?';
+            output = output.split('{{char}}').join(`(?:${alternatives})`);
+        }
+        if (output.includes('{{user}}')) {
+            output = output.split('{{user}}').join(userName ? escapeRegExp(userName) : '.+?');
+        }
+        return output;
     },
 
     maskText(settings, rules) {
@@ -175,14 +195,15 @@ export const PrivacyMaskModule = {
                 node.nodeValue = replaced;
                 if (settings.avatarMode === 'rule') this.maskAvatarsNear(node.parentElement);
             } else {
+                // Blur / black bar hide the original text, never the replacement.
                 const parent = node.parentElement;
                 if (!parent) continue;
                 const wrapper = document.createElement('span');
                 wrapper.className = STYLE_CLASS[settings.style] || STYLE_CLASS.blur;
-                wrapper.textContent = replaced;
+                wrapper.textContent = text;
                 parent.insertBefore(wrapper, node);
                 parent.removeChild(node);
-                wrappedNodes.add(wrapper);
+                wrappedNodes.set(wrapper, text);
                 if (settings.avatarMode === 'rule') this.maskAvatarsNear(wrapper);
             }
         }
@@ -214,9 +235,9 @@ export const PrivacyMaskModule = {
             if (node.isConnected) node.nodeValue = text;
         }
         originalText.clear();
-        for (const wrapper of wrappedNodes) {
+        for (const [wrapper, text] of wrappedNodes) {
             if (wrapper.isConnected && wrapper.parentElement) {
-                wrapper.replaceWith(document.createTextNode(wrapper.textContent));
+                wrapper.replaceWith(document.createTextNode(text));
             }
         }
         wrappedNodes.clear();
@@ -323,6 +344,7 @@ export const PrivacyMaskModule = {
                 const field = button.dataset.field;
                 if (field !== 'style' && field !== 'avatarMode') return;
                 this.getSettings()[field] = button.dataset.value;
+                if (this._applied) this._applied[field] = button.dataset.value;
                 button.closest('.stmd-seg')?.querySelectorAll('.stmd-seg-btn').forEach(item => {
                     item.classList.toggle('active', item === button);
                 });
