@@ -228,14 +228,10 @@
     opacity: 1;
 }
 
+/* SillyTavern already rotates .showMoreChats.rotated by 180deg; rotating the
+   inner icon as well cancels it out. Only the spacing is ours. */
 .stmd-show-more {
-    display: flex;
-    justify-content: center;
     margin: 4px auto 0;
-}
-
-.stmd-show-more.rotated small {
-    transform: rotate(180deg);
 }
 
 .stmd-loading {
