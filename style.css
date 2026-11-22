@@ -276,14 +276,16 @@
     user-select: none;
 }
 
-.stmd-mask-bar {
-    background: #000;
-    color: transparent !important;
-    border-radius: 3px;
-}
-
+.stmd-mask-bar,
 .stmd-mask-bar * {
+    background: #000 !important;
     color: transparent !important;
+    /* Transparent glyphs still paint their shadow, which is why a coloured
+       glow used to leak out from under the bar. */
+    text-shadow: none !important;
+    -webkit-text-stroke: 0 !important;
+    box-shadow: none !important;
+    border-radius: 3px;
 }
 
 .stmd-mask-avatar {
