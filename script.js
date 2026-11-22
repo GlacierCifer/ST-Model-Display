@@ -348,7 +348,10 @@ GlobalFontModule.init();
         PrivacyMaskModule.getSettings().enabled = enabled;
         $('#privacy_mask_settings_panel').toggle(enabled);
         PrivacyMaskModule.save();
-        PrivacyMaskModule.schedule(50);
+        if (!enabled) {
+            PrivacyMaskModule._applied = null;
+            PrivacyMaskModule.restore();
+        }
     });
 
     $(document).on('click.miscBeautify', '#misc_update_btn', async () => {
