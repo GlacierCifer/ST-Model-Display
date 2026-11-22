@@ -7,6 +7,7 @@ import { DetailsFoldModule } from './modules/DetailsFold.js';
 import { GlobalFontModule, FontObserverModule } from './modules/GlobalFont.js';
 import { QuickRefreshModule } from './modules/QuickRefresh.js';
 import { RecentFoldersModule } from './modules/RecentFolders.js';
+import { UpdaterModule } from './modules/Updater.js';
 
 const DETAILS_FOLD_SETTINGS_KEY = 'details_fold_enabled';
 const DEFAULT_DETAILS_FOLD_ENABLED = true;
@@ -42,6 +43,7 @@ function initializeCombinedExtension() {
 GlobalFontModule.init();
         FontObserverModule.init(GlobalFontModule.docContext);
         RecentFoldersModule.init();
+        window.__stmdUpdater = UpdaterModule;
 
         const detailsFoldEnabled = getDetailsFoldEnabled();
 
@@ -67,6 +69,14 @@ GlobalFontModule.init();
                             class="version-indicator"
                             id="model_display_version_indicator"
                         ></span>
+
+                        <i
+                            id="misc_update_btn"
+                            class="fa-solid fa-cloud-arrow-down"
+                            title="检查更新"
+                            role="button"
+                            tabindex="0"
+                        ></i>
                     </div>
 
                     <!-- 模型名称显示 -->
@@ -311,6 +321,43 @@ GlobalFontModule.init();
     });
 
     RecentFoldersModule.bindSettingsEvents();
+
+    $(document).on('click.miscBeautify', '#misc_update_btn', async () => {
+        const button = document.getElementById('misc_update_btn');
+        const toast = window.toastr || { success() {}, warning() {}, error() {} };
+        button?.classList.add('fa-spin');
+        try {
+            const result = await UpdaterModule.check();
+            if (result.unknown) {
+                toast.warning('无法获取版本信息（网络或仓库不可达）');
+                return;
+            }
+            if (!result.hasUpdate) {
+                toast.success(`已是最新版本 v${result.local}`);
+                return;
+            }
+            const confirmed = confirm(
+                `发现新版本：${result.local} → ${result.remote}\n\n是否更新？\n（更新会丢弃扩展目录内的本地改动，扩展设置不受影响）`
+            );
+            if (!confirmed) return;
+            try {
+                await UpdaterModule.update();
+            } catch (error) {
+                const clean = confirm(
+                    `直接更新失败：\n${error.message}\n\n要彻底重装吗？\n（删除扩展目录后重新克隆，会清除本地改动和残留文件）`
+                );
+                if (!clean) return;
+                await UpdaterModule.reinstall();
+            }
+            UpdaterModule.cleanupLocalState();
+            toast.success('已更新，正在重新加载…');
+            setTimeout(() => location.reload(), 900);
+        } catch (error) {
+            toast.error(`检查更新失败：${error.message}`);
+        } finally {
+            button?.classList.remove('fa-spin');
+        }
+    });
 
     $(document).on('click.miscBeautify', '.sub-setting-toggle', function () {
         $(this)
