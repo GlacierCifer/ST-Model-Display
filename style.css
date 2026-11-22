@@ -289,3 +289,64 @@
 .stmd-mask-avatar {
     filter: blur(14px);
 }
+
+/* ── 设置分组（手风琴） ──────────────────────────────────── */
+.stmd-group {
+    margin-bottom: 6px;
+}
+
+.stmd-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+    user-select: none;
+}
+
+.stmd-group-chevron {
+    opacity: 0.6;
+    transition: transform 0.18s ease;
+}
+
+.stmd-group.open .stmd-group-chevron {
+    transform: rotate(180deg);
+}
+
+.stmd-group-body {
+    display: none;
+    padding: 6px 4px 2px;
+}
+
+.stmd-group.open .stmd-group-body {
+    display: block;
+}
+
+/* 一行内的互斥选项 */
+.stmd-seg {
+    display: flex;
+    gap: 4px;
+    margin: 6px 0;
+    flex-wrap: wrap;
+}
+
+.stmd-seg-btn {
+    flex: 1 1 auto;
+    padding: 5px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 0.9em;
+    white-space: nowrap;
+}
+
+.stmd-seg-btn.active {
+    background: var(--SmartThemeQuoteColor, #6d5efc);
+    border-color: transparent;
+    color: #fff;
+}

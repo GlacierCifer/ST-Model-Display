@@ -82,6 +82,13 @@ GlobalFontModule.init();
                         ></i>
                     </div>
 
+                    <div class="stmd-group" data-group="chat">
+                        <div class="stmd-group-head" role="button" tabindex="0">
+                            <span>聊天显示</span>
+                            <i class="fa-solid fa-chevron-down stmd-group-chevron"></i>
+                        </div>
+                        <div class="stmd-group-body">
+
                     <!-- 模型名称显示 -->
                     <label class="checkbox_label">
                         <input
@@ -152,6 +159,16 @@ GlobalFontModule.init();
                         </div>
                     </div>
 
+                        </div>
+                    </div>
+
+                    <div class="stmd-group" data-group="appearance">
+                        <div class="stmd-group-head" role="button" tabindex="0">
+                            <span>外观</span>
+                            <i class="fa-solid fa-chevron-down stmd-group-chevron"></i>
+                        </div>
+                        <div class="stmd-group-body">
+
                     <!-- 全局字体替换 -->
                     <label class="checkbox_label">
                         <input
@@ -177,6 +194,16 @@ GlobalFontModule.init();
                         </div>
                     </div>
 
+                        </div>
+                    </div>
+
+                    <div class="stmd-group" data-group="privacy">
+                        <div class="stmd-group-head" role="button" tabindex="0">
+                            <span>隐私</span>
+                            <i class="fa-solid fa-chevron-down stmd-group-chevron"></i>
+                        </div>
+                        <div class="stmd-group-body">
+
                     <label class="checkbox_label">
                         <input
                             type="checkbox"
@@ -194,6 +221,16 @@ GlobalFontModule.init();
                         ${PrivacyMaskModule.renderSettingsHtml()}
                     </div>
 
+                        </div>
+                    </div>
+
+                    <div class="stmd-group" data-group="home">
+                        <div class="stmd-group-head" role="button" tabindex="0">
+                            <span>主页</span>
+                            <i class="fa-solid fa-chevron-down stmd-group-chevron"></i>
+                        </div>
+                        <div class="stmd-group-body">
+
                     <label class="checkbox_label">
                         <input
                             type="checkbox"
@@ -209,6 +246,9 @@ GlobalFontModule.init();
                         style="${RecentFoldersModule.getSettings().enabled ? '' : 'display: none;'}"
                     >
                         ${RecentFoldersModule.renderSettingsHtml()}
+                    </div>
+
+                        </div>
                     </div>
 
                 </div>
@@ -390,6 +430,24 @@ GlobalFontModule.init();
             button?.classList.remove('fa-spin');
         }
     });
+
+    // Accordion: only one group stays open, state remembered per browser.
+    const groupKey = 'stmd.settings.group';
+    const openGroup = (name) => {
+        document.querySelectorAll('.stmd-group').forEach(group => {
+            group.classList.toggle('open', group.dataset.group === name);
+        });
+        try { localStorage.setItem(groupKey, name || ''); } catch { /* ignore */ }
+    };
+    $(document).on('click.miscBeautify', '.stmd-group-head', function () {
+        const group = this.closest('.stmd-group');
+        if (!group) return;
+        const name = group.dataset.group;
+        openGroup(group.classList.contains('open') ? '' : name);
+    });
+    let savedGroup = '';
+    try { savedGroup = localStorage.getItem(groupKey) || ''; } catch { /* ignore */ }
+    openGroup(savedGroup || 'chat');
 
     $(document).on('click.miscBeautify', '.sub-setting-toggle', function () {
         $(this)

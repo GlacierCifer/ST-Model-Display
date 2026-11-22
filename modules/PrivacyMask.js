@@ -224,6 +224,12 @@ export const PrivacyMaskModule = {
         maskedImages.clear();
     },
 
+    renderSeg(field, options, current) {
+        return `<div class="stmd-seg" data-field="${field}">` + options.map(([value, label]) =>
+            `<button type="button" class="stmd-seg-btn ${value === current ? 'active' : ''}" data-field="${field}" data-value="${value}">${label}</button>`
+        ).join('') + '</div>';
+    },
+
     renderRuleRow(rule = { match: '', replace: '' }, index = 0) {
         return `
             <div class="stmd-mask-rule-row" data-index="${index}" style="display: flex; gap: 6px; align-items: center; margin-bottom: 6px;">
@@ -239,16 +245,16 @@ export const PrivacyMaskModule = {
     renderSettingsHtml() {
         const settings = this.getSettings();
         const rows = settings.rules.map((rule, index) => this.renderRuleRow(rule, index)).join('');
-        const styleOptions = [
-            ['replace', '替换为 ***'],
+        const styleSeg = this.renderSeg('style', [
+            ['replace', '替换 ***'],
             ['blur', '模糊'],
             ['bar', '黑条'],
-        ].map(([value, label]) => `<option value="${value}" ${settings.style === value ? 'selected' : ''}>${label}</option>`).join('');
-        const avatarOptions = [
-            ['rule', '跟随规则（只有被屏蔽名字的头像模糊）'],
-            ['all', '全局模糊（所有头像都模糊）'],
-            ['none', '不模糊头像'],
-        ].map(([value, label]) => `<option value="${value}" ${settings.avatarMode === value ? 'selected' : ''}>${label}</option>`).join('');
+        ], settings.style);
+        const avatarSeg = this.renderSeg('avatarMode', [
+            ['rule', '跟随规则'],
+            ['all', '全局'],
+            ['none', '不打码'],
+        ], settings.avatarMode);
 
         return `
             <div class="stmd-mask-settings">
@@ -262,13 +268,14 @@ export const PrivacyMaskModule = {
                 </button>
 
                 <div class="form-group">
-                    <label for="stmd_mask_style">打码方式</label>
-                    <select id="stmd_mask_style" class="text_pole">${styleOptions}</select>
+                    <label>打码方式</label>
+                    ${styleSeg}
                 </div>
 
                 <div class="form-group">
-                    <label for="stmd_mask_avatar_mode">头像处理</label>
-                    <select id="stmd_mask_avatar_mode" class="text_pole">${avatarOptions}</select>
+                    <label>头像处理</label>
+                    ${avatarSeg}
+                    <div class="sub-setting-description">跟随规则：只有名字被屏蔽的角色头像才模糊。</div>
                 </div>
 
                 <div style="display: flex; gap: 8px; margin-top: 10px;">
@@ -311,14 +318,14 @@ export const PrivacyMaskModule = {
             .on('input.stmdMask', '.stmd-mask-rule-row input', () => {
                 this.updateRulesFromUI();
             })
-            .on('change.stmdMask', '#stmd_mask_style', (event) => {
-                this.getSettings().style = String($(event.currentTarget).val());
-                this.save();
-                this.restore();
-                this.schedule(50);
-            })
-            .on('change.stmdMask', '#stmd_mask_avatar_mode', (event) => {
-                this.getSettings().avatarMode = String($(event.currentTarget).val());
+            .on('click.stmdMask', '.stmd-seg-btn', (event) => {
+                const button = event.currentTarget;
+                const field = button.dataset.field;
+                if (field !== 'style' && field !== 'avatarMode') return;
+                this.getSettings()[field] = button.dataset.value;
+                button.closest('.stmd-seg')?.querySelectorAll('.stmd-seg-btn').forEach(item => {
+                    item.classList.toggle('active', item === button);
+                });
                 this.save();
                 this.restore();
                 this.schedule(50);
