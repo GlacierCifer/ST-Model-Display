@@ -380,15 +380,26 @@ export const RecentFoldersModule = {
 
         const body = document.createElement('div');
         body.className = `stmd-folder-body${open ? ' stmd-open' : ''}`;
-        for (const chat of folder.chats) {
-            body.appendChild(this.renderChatRow(chat, folder.avatar));
-        }
+
+        // Rows are created lazily: a closed folder renders nothing, and an open
+        // one only renders the first page. Hundreds of pre-built rows made the
+        // welcome panel heavy enough that WebKit dropped its backdrop blur.
+        const fill = (limit = this._pageSize) => {
+            const current = body.querySelectorAll('.recentChat').length;
+            const pending = (folder.chats || [])
+                .slice(current, current + limit);
+            for (const chat of pending) {
+                body.appendChild(this.renderChatRow(chat, folder.avatar));
+            }
+        };
+        if (open) fill(this._pageSize);
 
         const toggle = (event) => {
             event.stopPropagation();
             const next = !head.classList.contains('stmd-open');
             head.classList.toggle('stmd-open', next);
             body.classList.toggle('stmd-open', next);
+            if (next) fill(this._pageSize);
             this.setOpen(folder.avatar, next);
             document.dispatchEvent(new CustomEvent('stmd:layout-changed'));
         };
@@ -473,6 +484,21 @@ export const RecentFoldersModule = {
         if (this._loading.has(avatar)) return;
         if (!body) return;
 
+        const key = (chat) => String(chat.file_name || chat.chat_name || '').replace(/\.jsonl$/i, '');
+        const rendered = () => new Set([...body.querySelectorAll('.recentChat')].map(row => row.dataset.file));
+
+        // Rows already known from the recent-chats payload come first — no extra
+        // request needed for the common case.
+        const pending = (folder.chats || [])
+            .filter(chat => !rendered().has(key(chat)))
+            .slice(0, this._pageSize);
+        if (pending.length > 0) {
+            for (const chat of pending) body.appendChild(this.renderChatRow(chat, avatar));
+            const shown = body.querySelectorAll('.recentChat').length;
+            this.showProgress(head, shown, this._totals.get(avatar) || (folder.chats || []).length);
+            return;
+        }
+
         this._loading.add(avatar);
         const spinner = document.createElement('div');
         spinner.className = 'stmd-loading';
@@ -480,10 +506,8 @@ export const RecentFoldersModule = {
         body.appendChild(spinner);
         try {
             const all = await this.fetchAllChats(avatar);
-            const rendered = new Set([...body.querySelectorAll('.recentChat')].map(row => row.dataset.file));
-            const next = all
-                .filter(chat => !rendered.has(String(chat.file_name || '').replace(/\.jsonl$/i, '')))
-                .slice(0, this._pageSize);
+            const seen = rendered();
+            const next = all.filter(chat => !seen.has(key(chat))).slice(0, this._pageSize);
             for (const chat of next) {
                 body.insertBefore(this.renderChatRow(chat, avatar), spinner);
             }
