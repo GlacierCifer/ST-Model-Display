@@ -6,6 +6,8 @@ import {
     openCharacterChat,
     saveSettingsDebounced,
     getRequestHeaders,
+    renameGroupOrCharacterChat,
+    deleteCharacterChatByName,
 } from '../../../../../script.js';
 import { extension_settings } from '../../../../extensions.js';
 
@@ -44,6 +46,8 @@ export const RecentFoldersModule = {
         enabled: false,
         maxFolders: 3,
         maxChats: 200,
+        pinnedFolders: [],
+        pinnedChats: {},
     }),
 
     _observer: null,
@@ -93,8 +97,10 @@ export const RecentFoldersModule = {
     async run() {
         if (!this.getSettings().enabled) return;
         const list = document.querySelector('.welcomePanel .recentChatList');
-        if (!list || list.dataset.stmdBuilt === '1') return;
-        if (list.querySelector('.stmd-folder')) return;
+        if (!list) return;
+        if (list.dataset.stmdBuilt === '1' && !this._force) return;
+        if (!this._force && list.querySelector('.stmd-folder')) return;
+        this._force = false;
 
         let chats;
         try {
@@ -159,19 +165,99 @@ export const RecentFoldersModule = {
         const folders = [...byAvatar.entries()]
             .map(([avatar, items]) => {
                 const info = characters?.find(c => c.avatar === avatar);
+                const pinned = this.isChatPinned(avatar, items[0]?.chat_name || items[0]?.file_name);
                 return {
                     avatar,
                     name: info?.name || items[0].char_name || avatar.replace(/\.png$/i, ''),
                     thumbnail: thumbnailUrl(avatar),
-                    chats: items,
+                    chats: this.sortChats(avatar, items),
+                    pinned,
+                    newest: this.indexOfChat(chats, items[0]),
                 };
             })
-            // The API already returns chats newest first, so the first chat of a
-            // character carries that character's most recent activity.
-            .sort((a, b) => this.indexOfChat(chats, a.chats[0]) - this.indexOfChat(chats, b.chats[0]));
+            // Pinned folders float; otherwise the API order (newest first) wins.
+            .sort((a, b) => {
+                if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+                return a.newest - b.newest;
+            });
 
         const limit = Math.max(1, Number(settings.maxFolders) || 3);
         return { folders: folders.slice(0, limit), others };
+    },
+
+    chatKey(chat) {
+        return String(chat?.chat_name || chat?.file_name || '').replace(/\.jsonl$/i, '');
+    },
+
+    isChatPinned(avatar, chatName) {
+        const map = this.getSettings().pinnedChats || {};
+        return (map[avatar] || []).includes(String(chatName || '').replace(/\.jsonl$/i, ''));
+    },
+
+    /** Pinned chats first (in pin order), then the rest in API order. */
+    sortChats(avatar, chats) {
+        const pinned = (this.getSettings().pinnedChats || {})[avatar] || [];
+        if (pinned.length === 0) return chats;
+        const rank = (chat) => {
+            const index = pinned.indexOf(this.chatKey(chat));
+            return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+        };
+        return [...chats].sort((a, b) => rank(a) - rank(b));
+    },
+
+    isFolderPinned(avatar) {
+        return (this.getSettings().pinnedFolders || []).includes(avatar);
+    },
+
+    toggleFolderPin(avatar) {
+        const settings = this.getSettings();
+        const list = settings.pinnedFolders || [];
+        settings.pinnedFolders = list.includes(avatar)
+            ? list.filter(item => item !== avatar)
+            : [...list, avatar];
+        this.save();
+        this.refresh();
+    },
+
+    toggleChatPin(avatar, chatName) {
+        const settings = this.getSettings();
+        const map = settings.pinnedChats || {};
+        const key = String(chatName || '').replace(/\.jsonl$/i, '');
+        const list = map[avatar] || [];
+        map[avatar] = list.includes(key) ? list.filter(item => item !== key) : [...list, key];
+        settings.pinnedChats = map;
+        this.save();
+        this.refresh();
+    },
+
+    async renameChat(chat, chatName) {
+        const index = characters?.findIndex(c => c.avatar === chat.avatar) ?? -1;
+        if (index === -1) return;
+        const next = window.prompt('重命名聊天', chatName);
+        if (!next || next.trim() === '' || next === chatName) return;
+        try {
+            await renameGroupOrCharacterChat({
+                characterId: String(index),
+                oldFileName: chatName,
+                newFileName: String(next).trim(),
+                loader: false,
+            });
+            this.refresh();
+        } catch (e) {
+            console.error('[模块-主页文件夹] 重命名失败:', e);
+        }
+    },
+
+    async deleteChat(chat, chatName) {
+        const index = characters?.findIndex(c => c.avatar === chat.avatar) ?? -1;
+        if (index === -1) return;
+        if (!window.confirm(`确定要删除聊天「${chatName}」吗？`)) return;
+        try {
+            await deleteCharacterChatByName(index, chatName);
+            this.refresh();
+        } catch (e) {
+            console.error('[模块-主页文件夹] 删除失败:', e);
+        }
     },
 
     indexOfChat(chats, target) {
@@ -200,6 +286,11 @@ export const RecentFoldersModule = {
                         <strong class="characterName">${escape(folder.name)}</strong>
                         <span class="stmd-folder-count">${folder.chats.length}</span>
                     </div>
+                    <div class="chatActions">
+                        <button class="menu_button menu_button_icon pinChat stmd-folder-pin ${folder.pinned ? 'active' : ''}" title="置顶角色" type="button">
+                            <i class="fa-solid fa-thumbtack fa-fw"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
             <i class="fa-solid fa-chevron-down stmd-folder-chevron"></i>`;
@@ -216,6 +307,12 @@ export const RecentFoldersModule = {
                 event.preventDefault();
                 toggle(event);
             }
+        });
+
+        const pinButton = head.querySelector('.stmd-folder-pin');
+        pinButton?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.toggleFolderPin(folder.avatar);
         });
 
         const body = document.createElement('div');
@@ -243,6 +340,7 @@ export const RecentFoldersModule = {
         const info = characters?.find(c => c.avatar === chat.avatar);
         const charName = info?.name || chat.char_name || '';
         const count = Number(chat.chat_items) || 0;
+        const pinned = this.isChatPinned(chat.avatar, chatName);
         row.innerHTML = `
             <div class="avatar"><img src="${escape(thumb)}" alt="" loading="lazy" decoding="async"></div>
             <div class="recentChatInfo">
@@ -253,6 +351,17 @@ export const RecentFoldersModule = {
                         <span>${escape(chatName)}</span>
                     </div>
                     <small class="chatDate" title="${escape(dateLong)}">${escape(dateShort)}</small>
+                    <div class="chatActions">
+                        <button class="menu_button menu_button_icon pinChat ${pinned ? 'active' : ''}" title="置顶聊天" type="button">
+                            <i class="fa-solid fa-thumbtack fa-fw"></i>
+                        </button>
+                        <button class="menu_button menu_button_icon renameChat" title="重命名聊天" type="button">
+                            <i class="fa-solid fa-pen-to-square fa-fw"></i>
+                        </button>
+                        <button class="menu_button menu_button_icon deleteChat" title="删除聊天" type="button">
+                            <i class="fa-solid fa-trash fa-fw"></i>
+                        </button>
+                    </div>
                 </div>
                 <div class="chatMessageContainer">
                     <div class="chatMessage" title="${escape(message)}">${escape(message)}</div>
@@ -265,6 +374,19 @@ export const RecentFoldersModule = {
                     </div>
                 </div>
             </div>`;
+
+        row.querySelector('.pinChat')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.toggleChatPin(chat.avatar, chatName);
+        });
+        row.querySelector('.renameChat')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            void this.renameChat(chat, chatName);
+        });
+        row.querySelector('.deleteChat')?.addEventListener('click', (event) => {
+            event.stopPropagation();
+            void this.deleteChat(chat, chatName);
+        });
         row.addEventListener('click', (event) => {
             event.stopPropagation();
             void this.openChat(chat.avatar, fileName);
@@ -340,6 +462,7 @@ export const RecentFoldersModule = {
 
     /** Forces a rebuild on the next tick (settings changed or re-enabled). */
     refresh() {
+        this._force = true;
         document.querySelectorAll('.recentChatList').forEach(list => { delete list.dataset.stmdBuilt; });
         this.schedule();
     },
