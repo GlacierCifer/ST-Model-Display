@@ -1,10 +1,15 @@
 {
   "display_name": "小美化集",
-  "version": "1.6.7",
+  "version": "1.6.8",
   "homePage": "https://github.com/GlacierCifer/ST-Model-Display",
   "author": "竺笋(三天两顿)",
   "js": "script.js",
   "css": "style.css",
   "auto_update": true,
-  "loading_order": 999
+  "loading_order": 999,
+  "postUpdate": {
+    "notify": true,
+    "reload": true,
+    "message": "本次更新包含主页文件夹、打码模式与更新检查的修复。"
+  }
 }

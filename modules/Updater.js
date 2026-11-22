@@ -33,6 +33,11 @@ function directoryName() {
     return REPO;
 }
 
+const escapeHtml = (value) => String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+
 function requestHeaders() {
     try {
         return typeof globalThis.getRequestHeaders === 'function'
@@ -134,6 +139,54 @@ export const UpdaterModule = {
         await this.post('delete', { extensionName: this.extensionName, global: false });
         await this.post('install', { url: this.repoUrl, global: false });
         return true;
+    },
+
+    /**
+     * After a successful update: optionally ask the user whether to reload now.
+     * The manifest decides — releases that need a refresh set `postUpdate`.
+     */
+    async promptAfterUpdate() {
+        let manifest = null;
+        try {
+            const response = await fetch(this.localManifestUrl, { cache: 'no-store' });
+            manifest = await response.json();
+        } catch {
+            // no manifest: just reload like before
+        }
+        const version = manifest?.version || '';
+        const info = manifest?.postUpdate;
+
+        if (!info || info.notify === false) {
+            location.reload();
+            return;
+        }
+
+        const seenKey = `stmd.updateNotice.${version}`;
+        if (version && localStorage.getItem(seenKey) === '1') {
+            location.reload();
+            return;
+        }
+
+        const lines = [
+            info.message || '更新已完成。',
+            info.reload === false ? '' : '刷新页面后新功能才会生效。',
+            '如果刷新后界面仍是旧的，请强制刷新页面，或在 App 里点「清缓存」再试。',
+        ].filter(Boolean);
+        const html = `<h3>已更新到 v${version}</h3><p>${lines.map(line => escapeHtml(line)).join('<br>')}</p>`;
+
+        let result = null;
+        try {
+            const popup = await import('../../../../popup.js');
+            result = await popup.callGenericPopup(html, popup.POPUP_TYPE.CONFIRM, '', {
+                okButton: '立即刷新',
+                cancelButton: '稍后',
+            });
+        } catch {
+            result = window.confirm(`已更新到 v${version}\n\n${lines.join('\n')}\n\n现在刷新吗？`) ? 1 : 0;
+        }
+
+        if (version) localStorage.setItem(seenKey, '1');
+        if (result === 1) location.reload();
     },
 
     /** Removes small per-session leftovers this extension keeps. */

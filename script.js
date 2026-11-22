@@ -382,8 +382,8 @@ GlobalFontModule.init();
                 await UpdaterModule.reinstall();
             }
             UpdaterModule.cleanupLocalState();
-            toast.success('已更新，正在重新加载…');
-            setTimeout(() => location.reload(), 900);
+            toast.success('更新完成');
+            await UpdaterModule.promptAfterUpdate();
         } catch (error) {
             toast.error(`检查更新失败：${error.message}`);
         } finally {
