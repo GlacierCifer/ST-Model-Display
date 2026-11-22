@@ -8,6 +8,7 @@ import { GlobalFontModule, FontObserverModule } from './modules/GlobalFont.js';
 import { QuickRefreshModule } from './modules/QuickRefresh.js';
 import { RecentFoldersModule } from './modules/RecentFolders.js';
 import { UpdaterModule } from './modules/Updater.js';
+import { PrivacyMaskModule } from './modules/PrivacyMask.js';
 
 const DETAILS_FOLD_SETTINGS_KEY = 'details_fold_enabled';
 const DEFAULT_DETAILS_FOLD_ENABLED = true;
@@ -44,6 +45,8 @@ GlobalFontModule.init();
         FontObserverModule.init(GlobalFontModule.docContext);
         RecentFoldersModule.init();
         window.__stmdUpdater = UpdaterModule;
+        PrivacyMaskModule.init();
+        window.__stmdPrivacy = PrivacyMaskModule;
 
         const detailsFoldEnabled = getDetailsFoldEnabled();
 
@@ -172,6 +175,23 @@ GlobalFontModule.init();
                         <div class="sub-setting-content" style="display: none;">
                             ${GlobalFontModule.renderSettingsHtml()}
                         </div>
+                    </div>
+
+                    <label class="checkbox_label">
+                        <input
+                            type="checkbox"
+                            id="misc_privacy_mask_toggle"
+                            ${PrivacyMaskModule.getSettings().enabled ? 'checked' : ''}
+                        >
+                        <span>打码模式</span>
+                    </label>
+
+                    <div
+                        id="privacy_mask_settings_panel"
+                        class="sub-setting-container"
+                        style="${PrivacyMaskModule.getSettings().enabled ? '' : 'display: none;'}"
+                    >
+                        ${PrivacyMaskModule.renderSettingsHtml()}
                     </div>
 
                     <label class="checkbox_label">
@@ -321,6 +341,15 @@ GlobalFontModule.init();
     });
 
     RecentFoldersModule.bindSettingsEvents();
+    PrivacyMaskModule.bindSettingsEvents();
+
+    $(document).on('change.miscBeautify', '#misc_privacy_mask_toggle', (event) => {
+        const enabled = $(event.currentTarget).is(':checked');
+        PrivacyMaskModule.getSettings().enabled = enabled;
+        $('#privacy_mask_settings_panel').toggle(enabled);
+        PrivacyMaskModule.save();
+        PrivacyMaskModule.schedule(50);
+    });
 
     $(document).on('click.miscBeautify', '#misc_update_btn', async () => {
         const button = document.getElementById('misc_update_btn');
