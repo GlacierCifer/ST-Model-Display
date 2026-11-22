@@ -24,6 +24,9 @@ const escape = (value) => String(value ?? '')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
 
+/** Direct avatar file, used when the thumbnail endpoint cannot serve one. */
+const characterImage = (avatar) => /characters/;
+
 /** Same source SillyTavern uses for character thumbnails. */
 const thumbnailUrl = (avatar) => `/thumbnail?type=avatar&file=${encodeURIComponent(avatar || '')}`;
 
@@ -322,7 +325,7 @@ export const RecentFoldersModule = {
         head.tabIndex = 0;
         head.title = folder.name;
         head.innerHTML = `
-            <div class="avatar"><img src="${escape(folder.thumbnail)}" alt="" loading="lazy" decoding="async"></div>
+            <div class="avatar"><img src="${escape(folder.thumbnail)}" data-fallback="${escape(characterImage(folder.avatar))}" alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback&&this.src!==this.dataset.fallback){this.src=this.dataset.fallback}"></div>
             <div class="recentChatInfo">
                 <div class="chatNameContainer">
                     <div class="chatName">
@@ -394,7 +397,7 @@ export const RecentFoldersModule = {
         const count = Number(chat.chat_items) || 0;
         const pinned = this.isChatPinned(chat.avatar, chatName);
         row.innerHTML = `
-            <div class="avatar"><img src="${escape(thumb)}" alt="" loading="lazy" decoding="async"></div>
+            <div class="avatar"><img src="${escape(thumb)}" data-fallback="${escape(characterImage(chat.avatar))}" alt="" loading="lazy" decoding="async" onerror="if(this.dataset.fallback&&this.src!==this.dataset.fallback){this.src=this.dataset.fallback}"></div>
             <div class="recentChatInfo">
                 <div class="chatNameContainer">
                     <div class="chatName" title="${escape(fileName)}">
