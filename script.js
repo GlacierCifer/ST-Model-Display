@@ -471,6 +471,15 @@ GlobalFontModule.init();
         }
         [...active, ...idle].forEach(group => content.appendChild(group));
 
+        // Dim what is switched off, so the enabled rows stand out.
+        content.querySelectorAll('.checkbox_label input[type="checkbox"]').forEach(input => {
+            input.closest('.checkbox_label')?.classList.toggle('stmd-off', !input.checked);
+        });
+        content.querySelectorAll(':scope > .stmd-group').forEach(group => {
+            if (group.dataset.group === 'disabled') return;
+            group.classList.toggle('stmd-group-idle', !isGroupActive(group.dataset.group));
+        });
+
         if (idle.length > 2) {
             const wrapper = document.createElement('div');
             wrapper.className = 'stmd-group stmd-group-disabled';

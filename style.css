@@ -370,3 +370,19 @@
     background: transparent;
     border: 1px solid var(--SmartThemeBorderColor, #555);
 }
+
+/* 未启用的行与分组淡显，便于区分 */
+.checkbox_label.stmd-off {
+    opacity: 0.5;
+}
+
+.stmd-group.stmd-group-idle > .stmd-group-head {
+    opacity: 0.55;
+}
+
+.stmd-field-label {
+    display: block;
+    margin: 6px 0 2px;
+    font-size: 0.9em;
+    opacity: 0.8;
+}

@@ -607,9 +607,7 @@ export const RecentFoldersModule = {
                 <div class="sub-setting-description">
                     把主页的「最近聊天」改成按角色分组：每个角色一个文件夹，展开后可以看到该角色的全部聊天。
                 </div>
-                <label class="checkbox_label" for="stmd_folders_max">
-                    <span>初始显示的角色数量（其余点「展开更多」显示）</span>
-                </label>
+                <label class="stmd-field-label" for="stmd_folders_max">初始显示的角色数量（其余点「展开更多」显示）</label>
                 <input id="stmd_folders_max" class="text_pole" type="number" min="1" max="20" step="1" value="${Number(settings.maxFolders) || 3}">
                 <div class="sub-setting-description">
                     每次拉取的最近聊天条数（决定能覆盖多少旧聊天）：
