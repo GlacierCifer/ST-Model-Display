@@ -431,6 +431,62 @@ GlobalFontModule.init();
         }
     });
 
+    // Groups follow activity: anything still enabled stays on top; more than
+    // two idle groups collapse into a single "停用功能" drawer at the bottom.
+    const groupToggles = {
+        chat: ['#misc_model_display_toggle', '#misc_placeholder_toggle', '#misc_details_fold_toggle'],
+        appearance: ['#misc_global_font_toggle'],
+        privacy: ['#misc_privacy_mask_toggle'],
+        home: ['#misc_recent_folders_toggle'],
+    };
+    const groupOrder = ['chat', 'appearance', 'privacy', 'home'];
+
+    const isGroupActive = (name) => (groupToggles[name] || []).some(selector => {
+        const input = document.querySelector(selector);
+        return input && input.checked;
+    });
+
+    const layoutGroups = () => {
+        const content = document.querySelector('#misc_beautify_settings .inline-drawer-content');
+        if (!content) return;
+
+        const existing = content.querySelector(':scope > .stmd-group[data-group="disabled"]');
+        if (existing) {
+            existing.querySelectorAll('.stmd-group').forEach(group => {
+                group.classList.remove('open');
+                content.insertBefore(group, existing);
+            });
+            existing.remove();
+        }
+
+        const groups = new Map();
+        content.querySelectorAll(':scope > .stmd-group').forEach(group => groups.set(group.dataset.group, group));
+
+        const active = [];
+        const idle = [];
+        for (const name of groupOrder) {
+            const group = groups.get(name);
+            if (!group) continue;
+            (isGroupActive(name) ? active : idle).push(group);
+        }
+        [...active, ...idle].forEach(group => content.appendChild(group));
+
+        if (idle.length > 2) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'stmd-group stmd-group-disabled';
+            wrapper.dataset.group = 'disabled';
+            wrapper.innerHTML = `
+                <div class="stmd-group-head" role="button" tabindex="0">
+                    <span>停用功能 (${idle.length})</span>
+                    <i class="fa-solid fa-chevron-down stmd-group-chevron"></i>
+                </div>
+                <div class="stmd-group-body"></div>`;
+            const body = wrapper.querySelector('.stmd-group-body');
+            idle.forEach(group => body.appendChild(group));
+            content.appendChild(wrapper);
+        }
+    };
+
     // Accordion: only one group stays open, state remembered per browser.
     const groupKey = 'stmd.settings.group';
     const openGroup = (name) => {
@@ -443,11 +499,20 @@ GlobalFontModule.init();
         const group = this.closest('.stmd-group');
         if (!group) return;
         const name = group.dataset.group;
+        if (name === 'disabled') {
+            group.classList.toggle('open');
+            return;
+        }
         openGroup(group.classList.contains('open') ? '' : name);
     });
     let savedGroup = '';
     try { savedGroup = localStorage.getItem(groupKey) || ''; } catch { /* ignore */ }
     openGroup(savedGroup || 'chat');
+    layoutGroups();
+
+    $(document).on('change.miscBeautify', '#misc_beautify_settings .checkbox_label input', () => {
+        layoutGroups();
+    });
 
     $(document).on('click.miscBeautify', '.sub-setting-toggle', function () {
         $(this)

@@ -105,11 +105,14 @@ export const ModelDisplayModule = {
 
                 <div class="form-group" style="margin-top: 10px;">
                     <label style="display:block; margin-bottom:5px;" title="仅在匹配成功时生效，开启精简也会自动屏蔽上方设定的全局前后缀。">显示模式:</label>
-                    <select id="model_display_match_mode" class="text_pole" style="width: 100%;">
-                        <option value="normal" ${settings.matchDisplayMode === 'normal' ? 'selected' : ''}>常规: 显示 图标/规则前缀 + 完整模型原名</option>
-                        <option value="icon_only" ${settings.matchDisplayMode === 'icon_only' ? 'selected' : ''}>精简: 仅显示匹配的 图标/规则文本</option>
-                        <option value="keyword_only" ${settings.matchDisplayMode === 'keyword_only' ? 'selected' : ''}>精简: 仅显示触发了匹配的 关键词</option>
-                    </select>
+                    <div class="stmd-seg" data-field="matchDisplayMode">
+                        <button type="button" class="stmd-seg-btn ${settings.matchDisplayMode === 'normal' ? 'active' : ''}" data-field="matchDisplayMode" data-value="normal">常规</button>
+                        <button type="button" class="stmd-seg-btn ${settings.matchDisplayMode === 'icon_only' ? 'active' : ''}" data-field="matchDisplayMode" data-value="icon_only">仅图标</button>
+                        <button type="button" class="stmd-seg-btn ${settings.matchDisplayMode === 'keyword_only' ? 'active' : ''}" data-field="matchDisplayMode" data-value="keyword_only">仅关键词</button>
+                    </div>
+                    <div class="sub-setting-description">
+                        常规：图标/规则前缀 + 完整模型原名；仅图标：只显示匹配到的图标或规则文本；仅关键词：只显示触发匹配的关键词。
+                    </div>
                 </div>
 
                 <div class="form-group" style="margin-top: 10px;">
@@ -204,8 +207,12 @@ export const ModelDisplayModule = {
             this.saveSettings();
         });
 
-        $(document).on('change', '#model_display_match_mode', (e) => {
-            this.getSettings().matchDisplayMode = $(e.currentTarget).val();
+        $(document).on('click', '.stmd-seg-btn[data-field="matchDisplayMode"]', (e) => {
+            const button = e.currentTarget;
+            this.getSettings().matchDisplayMode = button.dataset.value;
+            button.closest('.stmd-seg')?.querySelectorAll('.stmd-seg-btn').forEach(item => {
+                item.classList.toggle('active', item === button);
+            });
             this.saveSettings();
         });
 

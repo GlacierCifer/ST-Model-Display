@@ -350,3 +350,23 @@
     border-color: transparent;
     color: #fff;
 }
+
+/* 停用功能抽屉：装未启用的分组 */
+.stmd-group-disabled {
+    margin-top: 10px;
+    opacity: 0.85;
+}
+
+.stmd-group-disabled > .stmd-group-head {
+    background: rgba(255, 255, 255, 0.03);
+    font-weight: 500;
+}
+
+.stmd-group-disabled .stmd-group {
+    margin: 6px 0 0 10px;
+}
+
+.stmd-group-disabled .stmd-group-head {
+    background: transparent;
+    border: 1px solid var(--SmartThemeBorderColor, #555);
+}
