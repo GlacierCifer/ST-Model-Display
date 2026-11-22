@@ -167,10 +167,18 @@
     align-items: center;
 }
 
+/* Long names would hide the count, so it sits on its own line. */
+.stmd-folder-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 2px;
+}
+
 .stmd-folder-count {
-    margin-left: 8px;
     opacity: 0.55;
     font-size: 0.85em;
+    white-space: nowrap;
 }
 
 .stmd-folder-progress {

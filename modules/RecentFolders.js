@@ -343,8 +343,6 @@ export const RecentFoldersModule = {
                 <div class="chatNameContainer">
                     <div class="chatName">
                         <strong class="characterName">${escape(folder.name)}</strong>
-                        <span class="stmd-folder-count">${folder.chats.length} 个聊天</span>
-                        <span class="stmd-folder-progress"></span>
                     </div>
                     <div class="chatActions">
                         <button class="menu_button menu_button_icon pinChat stmd-folder-pin ${folder.pinned ? 'active' : ''}" title="置顶角色" type="button">
@@ -354,6 +352,10 @@ export const RecentFoldersModule = {
                             <i class="fa-solid fa-trash fa-fw"></i>
                         </button>
                     </div>
+                </div>
+                <div class="stmd-folder-meta">
+                    <span class="stmd-folder-count">${folder.chats.length} 个聊天</span>
+                    <span class="stmd-folder-progress"></span>
                 </div>
             </div>
             <i class="fa-solid fa-chevron-down stmd-folder-chevron"></i>`;
