@@ -107,7 +107,7 @@ export const RecentFoldersModule = {
         const list = document.querySelector('.welcomePanel .recentChatList');
         if (!list) return;
         if (list.dataset.stmdBuilt === '1' && !this._force) return;
-        if (!this._force && list.querySelector('.stmd-folder')) return;
+        if (!this._force && list.querySelector('.stmd-folder-head')) return;
         this._force = false;
 
         let chats;
@@ -131,9 +131,9 @@ export const RecentFoldersModule = {
         try {
             const fragment = document.createDocumentFragment();
             folders.forEach((folder, index) => {
-                const el = this.renderFolder(folder);
-                if (index >= initial) el.classList.add('stmd-hidden');
-                fragment.appendChild(el);
+                const entry = this.renderFolder(folder);
+                if (index >= initial) entry.head.classList.add('stmd-hidden');
+                fragment.appendChild(entry.node);
             });
             if (folders.length > initial) {
                 fragment.appendChild(this.renderShowMore(folders.length - initial));
@@ -311,12 +311,12 @@ export const RecentFoldersModule = {
             event.stopPropagation();
             const list = button.closest('.recentChatList');
             const rotated = button.classList.contains('rotated');
-            list?.querySelectorAll('.stmd-folder.stmd-hidden, .stmd-folder.stmd-revealed').forEach(folder => {
-                folder.classList.toggle('stmd-hidden', rotated);
-                folder.classList.toggle('stmd-revealed', !rotated);
+            list?.querySelectorAll('.stmd-folder-head.stmd-hidden, .stmd-folder-head.stmd-revealed').forEach(head => {
+                head.classList.toggle('stmd-hidden', rotated);
+                head.classList.toggle('stmd-revealed', !rotated);
                 // Revealed folders get their total count only now.
                 if (!rotated) {
-                    this.ensureFolderTotal(folder.querySelector('.stmd-folder-head'), folder.dataset.avatar);
+                    this.ensureFolderTotal(head, head.dataset.avatar);
                 }
             });
             button.classList.toggle('rotated', !rotated);
@@ -327,14 +327,13 @@ export const RecentFoldersModule = {
 
     renderFolder(folder) {
         const open = this.isOpen(folder.avatar);
-        const wrapper = document.createElement('div');
-        wrapper.className = `stmd-folder${open ? ' stmd-open' : ''}`;
-        wrapper.dataset.avatar = folder.avatar;
 
-        // Reuses the stock .recentChat markup so every theme keeps styling it;
-        // only the chat-specific parts (message preview, date, actions) are gone.
+        // Flat structure: the header is a direct child of .recentChatList, just
+        // like SillyTavern's own rows, so selectors such as `> .recentChat` and
+        // sibling rules keep working. Only the expanded body needs a wrapper.
         const head = document.createElement('div');
-        head.className = 'recentChat stmd-folder-head';
+        head.className = `recentChat stmd-folder-head${open ? ' stmd-open' : ''}`;
+        head.dataset.avatar = folder.avatar;
         head.setAttribute('role', 'button');
         head.tabIndex = 0;
         head.title = folder.name;
@@ -359,10 +358,17 @@ export const RecentFoldersModule = {
             </div>
             <i class="fa-solid fa-chevron-down stmd-folder-chevron"></i>`;
 
+        const body = document.createElement('div');
+        body.className = `stmd-folder-body${open ? ' stmd-open' : ''}`;
+        for (const chat of folder.chats) {
+            body.appendChild(this.renderChatRow(chat, folder.avatar));
+        }
+
         const toggle = (event) => {
             event.stopPropagation();
-            const next = !wrapper.classList.contains('stmd-open');
-            wrapper.classList.toggle('stmd-open', next);
+            const next = !head.classList.contains('stmd-open');
+            head.classList.toggle('stmd-open', next);
+            body.classList.toggle('stmd-open', next);
             this.setOpen(folder.avatar, next);
         };
         head.addEventListener('click', toggle);
@@ -372,6 +378,15 @@ export const RecentFoldersModule = {
                 toggle(event);
             }
         });
+
+        // Reaching the bottom keeps pulling that character's older chats.
+        body.addEventListener('scroll', () => {
+            if (body.scrollTop + body.clientHeight >= body.scrollHeight - 32) {
+                void this.loadMore(head, body, folder);
+            }
+        });
+
+        this.ensureFolderTotal(head, folder.avatar);
 
         const pinButton = head.querySelector('.stmd-folder-pin');
         pinButton?.addEventListener('click', (event) => {
@@ -385,22 +400,9 @@ export const RecentFoldersModule = {
             void this.deleteFolderChats(folder);
         });
 
-        const body = document.createElement('div');
-        body.className = 'stmd-folder-body';
-        for (const chat of folder.chats) {
-            body.appendChild(this.renderChatRow(chat, folder.avatar));
-        }
-        // Reaching the bottom keeps pulling that character's older chats.
-        body.addEventListener('scroll', () => {
-            if (body.scrollTop + body.clientHeight >= body.scrollHeight - 32) {
-                void this.loadMore(wrapper, folder);
-            }
-        });
-
-        this.ensureFolderTotal(head, folder.avatar);
-
-        wrapper.append(head, body);
-        return wrapper;
+        const fragment = document.createDocumentFragment();
+        fragment.append(head, body);
+        return { node: fragment, head, body };
     },
 
     /** Total chats of a character; cheap (file names only) and cached. */
@@ -445,10 +447,9 @@ export const RecentFoldersModule = {
         return chats;
     },
 
-    async loadMore(wrapper, folder) {
+    async loadMore(head, body, folder) {
         const avatar = folder.avatar;
         if (this._loading.has(avatar)) return;
-        const body = wrapper.querySelector('.stmd-folder-body');
         if (!body) return;
 
         this._loading.add(avatar);
@@ -466,8 +467,8 @@ export const RecentFoldersModule = {
                 body.insertBefore(this.renderChatRow(chat, avatar), spinner);
             }
             const shown = body.querySelectorAll('.recentChat').length;
-            this.showProgress(wrapper, shown, all.length);
-            const countSpan = wrapper.querySelector('.stmd-folder-count');
+            this.showProgress(head, shown, all.length);
+            const countSpan = head.querySelector('.stmd-folder-count');
             if (countSpan) countSpan.textContent = `${all.length} 个聊天`;
         } catch (e) {
             console.warn('[模块-主页文件夹] 加载更多失败:', e);
@@ -483,8 +484,8 @@ export const RecentFoldersModule = {
         this._allChats.delete(avatar);
     },
 
-    showProgress(wrapper, shown, total) {
-        const el = wrapper.querySelector('.stmd-folder-progress');
+    showProgress(head, shown, total) {
+        const el = head.querySelector('.stmd-folder-progress');
         if (!el) return;
         el.textContent = `${shown}/${total}`;
         el.classList.add('visible');

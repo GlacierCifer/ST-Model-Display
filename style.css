@@ -149,12 +149,9 @@
 }
 
 /* ── 主页按角色分组 ───────────────────────────────────────── */
-/* The folder header reuses .recentChat so themes keep their card look. Only a
-   dim chat count is added; no extra icon, badge or custom card styling. */
-.stmd-folder {
-    margin-bottom: 6px;
-}
-
+/* Folder headers are plain .recentChat rows placed directly under
+   .recentChatList, so theme selectors (including `>` and sibling rules) keep
+   matching them. Only the expanded body needs its own container. */
 .stmd-folder-head {
     cursor: pointer;
     align-items: center;
@@ -176,49 +173,6 @@
     font-size: 0.85em;
 }
 
-.stmd-folder-chevron {
-    margin-left: auto;
-    opacity: 0.55;
-    transition: transform 0.18s ease;
-}
-
-.stmd-folder.stmd-open .stmd-folder-chevron {
-    transform: rotate(180deg);
-}
-
-.stmd-folder-body {
-    display: none;
-    max-height: 42vh;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-}
-
-.stmd-folder.stmd-open .stmd-folder-body {
-    display: block;
-}
-.stmd-folder.stmd-hidden {
-    display: none;
-}
-
-.stmd-show-more {
-    display: flex;
-    justify-content: center;
-    margin: 4px auto 0;
-}
-
-.stmd-show-more.rotated small {
-    transform: rotate(180deg);
-}
-
-/* Pin buttons read as "not set" until pinned. */
-.stmd-folder .pinChat:not(.active) {
-    opacity: 0.4;
-}
-
-.stmd-folder .pinChat.active {
-    opacity: 1;
-}
-
 .stmd-folder-progress {
     margin-left: 8px;
     font-size: 0.8em;
@@ -229,6 +183,58 @@
 
 .stmd-folder-progress.visible {
     opacity: 1;
+}
+
+.stmd-folder-chevron {
+    margin-left: auto;
+    opacity: 0.55;
+    transition: transform 0.18s ease;
+}
+
+.stmd-folder-head.stmd-open .stmd-folder-chevron {
+    transform: rotate(180deg);
+}
+
+.stmd-folder-head.stmd-hidden {
+    display: none;
+}
+
+.stmd-folder-body {
+    display: none;
+    max-height: 42vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 6px;
+}
+
+.stmd-folder-body.stmd-open {
+    display: block;
+}
+
+/* The folder already shows the character avatar. */
+.stmd-folder-body .stmd-folder-row .avatar {
+    display: none !important;
+}
+
+/* Pin buttons read as "not set" until pinned. */
+.stmd-folder-head .pinChat:not(.active),
+.stmd-folder-body .pinChat:not(.active) {
+    opacity: 0.4;
+}
+
+.stmd-folder-head .pinChat.active,
+.stmd-folder-body .pinChat.active {
+    opacity: 1;
+}
+
+.stmd-show-more {
+    display: flex;
+    justify-content: center;
+    margin: 4px auto 0;
+}
+
+.stmd-show-more.rotated small {
+    transform: rotate(180deg);
 }
 
 .stmd-loading {
@@ -258,10 +264,4 @@
 @keyframes stmd-bounce {
     0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
     40% { transform: translateY(-4px); opacity: 1; }
-}
-
-/* The folder already shows the character avatar; repeating it on every chat
-   row makes long lists noisy. */
-.stmd-folder .stmd-folder-row .avatar {
-    display: none !important;
 }
